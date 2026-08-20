@@ -1,0 +1,12 @@
+{
+  "name": "Ember Night",
+  "variables": {
+    "--bg": "#090708",
+    "--panel": "#171112",
+    "--ink": "#f0dfcf",
+    "--red": "#a93e2c",
+    "--red-bright": "#e26545",
+    "--gold": "#d1a45e",
+    "--line": "#3b2c2c"
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "name": "grimdice-vtt",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "description": "Готическая настольная 5e-кампания: пять героев, экспедиции, Бастион, конструктор, визуальные моды и защищённая сеть",
+  "homepage": "https://arena.ai/",
+  "author": {
+    "name": "GrimDice Project",
+    "email": "noreply@arena.ai"
+  },
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "desktop": "electron .",
+    "pack": "node desktop/build.cjs dir",
+    "pack:windows": "node desktop/build.cjs windows",
+    "pack:linux": "node desktop/build.cjs linux",
+    "pack:mac": "node desktop/build.cjs mac"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "ai.arena.grimdice",
+    "productName": "GrimDice",
+    "asar": true,
+    "asarUnpack": [
+      "server.mjs",
+      "public/**/*"
+    ],
+    "directories": {
+      "output": "release-build"
+    },
+    "files": [
+      "public/**/*",
+      "desktop/**/*",
+      "assets/**/*",
+      "server.mjs",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "desktop/main.cjs"
+    },
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "assets/icon.png",
+      "artifactName": "GrimDice-${version}-Windows-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Game",
+      "icon": "assets/icon.png",
+      "artifactName": "GrimDice-${version}-Linux-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.role-playing-games",
+      "icon": "assets/icon.png",
+      "artifactName": "GrimDice-${version}-macOS-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "GrimDice-${version}-Windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "GrimDice-${version}-Windows-${arch}-Setup.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "GrimDice"
+    }
+  }
+}
