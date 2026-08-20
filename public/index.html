@@ -34,6 +34,9 @@
         <button data-view="library" class="nav-item">
           <span class="nav-icon">♪</span><span>Медиатека</span><small>АССЕТЫ & ЗВУК</small>
         </button>
+        <button data-view="photo" class="nav-item" data-gm-only="true">
+          <span class="nav-icon">◩</span><span>Фоторедактор</span><small>КАДР & ЭФФЕКТЫ</small>
+        </button>
         <button data-view="workshop" class="nav-item">
           <span class="nav-icon">⚒</span><span>Конструктор</span><small>КОНТЕНТ & МОДЫ</small>
         </button>
@@ -45,8 +48,9 @@
       <div class="side-bottom">
         <div class="sync-status" id="syncStatus"><i></i><span>Локальная игра</span></div>
         <button class="side-action" id="saveExportBtn">⇩ <span>Сохранить кампанию</span></button>
+        <button class="side-action" id="updateBtn" hidden>↻ <span>Обновления</span></button>
         <button class="side-action" id="settingsBtn">⚙ <span>Настройки</span></button>
-        <div class="version">FORGE 2.0 · FIVE HEROES</div>
+        <div class="version">FORGE 2.1 · FIVE HEROES</div>
       </div>
     </aside>
 
@@ -81,6 +85,7 @@
   <div id="toastHost" class="toast-host" aria-live="polite"></div>
   <div id="modalHost"></div>
   <input id="campaignImportInput" type="file" accept="application/json,.json" hidden />
+  <script src="/photo-editor.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

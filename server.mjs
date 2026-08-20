@@ -17,6 +17,11 @@ const mime = {
   '.webp': 'image/webp', '.gif': 'image/gif', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg',
   '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.woff': 'font/woff', '.woff2': 'font/woff2'
 };
+const staticSecurityHeaders = {
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob: data:; font-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'none'",
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff'
+};
 
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -273,25 +278,30 @@ function applyPlayerState(room, session, incoming) {
 }
 
 async function serveStatic(req, res) {
-  const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  } catch {
+    return json(res, 400, { error: 'Malformed URL' });
+  }
   const requested = pathname === '/' ? '/index.html' : pathname;
   const file = path.normalize(path.join(PUBLIC, requested));
-  if (!file.startsWith(PUBLIC)) return json(res, 403, { error: 'Forbidden' });
+  if (file !== PUBLIC && !file.startsWith(`${PUBLIC}${path.sep}`)) return json(res, 403, { error: 'Forbidden' });
   try {
     const info = await stat(file);
     if (!info.isFile()) throw new Error('not file');
     const data = await readFile(file);
     res.writeHead(200, {
+      ...staticSecurityHeaders,
       'Content-Type': mime[path.extname(file)] || 'application/octet-stream',
-      'Cache-Control': path.extname(file) === '.html' ? 'no-store' : 'public, max-age=300',
-      'X-Content-Type-Options': 'nosniff'
+      'Cache-Control': path.extname(file) === '.html' ? 'no-store' : 'public, max-age=300'
     });
     res.end(data);
   } catch {
     if (!path.extname(requested)) {
       try {
         const data = await readFile(path.join(PUBLIC, 'index.html'));
-        res.writeHead(200, { 'Content-Type': mime['.html'], 'Cache-Control': 'no-store' });
+        res.writeHead(200, { ...staticSecurityHeaders, 'Content-Type': mime['.html'], 'Cache-Control': 'no-store' });
         return res.end(data);
       } catch {}
     }

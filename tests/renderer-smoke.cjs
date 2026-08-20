@@ -16,9 +16,9 @@ class Element{
   remove(){}
   click(){}
 }
-const ids=['campaignTitle','navRound','navCharacters','syncStatus','roomBtn','mainContent','toastHost','modalHost','campaignImportInput','autosaveLabel','settingsBtn','gmMenuBtn','saveExportBtn','quickDiceBtn'];
+const ids=['campaignTitle','navRound','navCharacters','syncStatus','roomBtn','mainContent','toastHost','modalHost','campaignImportInput','autosaveLabel','settingsBtn','gmMenuBtn','saveExportBtn','updateBtn','quickDiceBtn'];
 const elements=Object.fromEntries(ids.map(id=>[id,new Element(id)]));
-const navViews=['combat','expedition','hub','characters','scene','library','workshop','rules'].map(view=>{const el=new Element();el.dataset.view=view;return el;});
+const navViews=['combat','expedition','hub','characters','scene','library','photo','workshop','rules'].map(view=>{const el=new Element();el.dataset.view=view;return el;});
 const documentListeners={};
 const document={
   getElementById:id=>elements[id]||(elements[id]=new Element(id)),
@@ -42,13 +42,14 @@ global.EventSource=class{};
 global.Audio=class{};
 global.indexedDB={open(){throw new Error('IndexedDB should not be opened in empty demo smoke test');}};
 if(!global.crypto)global.crypto=require('node:crypto').webcrypto;
+vm.runInThisContext(fs.readFileSync(require.resolve('../public/photo-editor.js'),'utf8'),{filename:'photo-editor.js'});
 vm.runInThisContext(fs.readFileSync(require.resolve('../public/app.js'),'utf8'),{filename:'app.js'});
 assert.equal(typeof documentListeners.click,'function');
 const clickButton=dataset=>documentListeners.click({target:Object.assign(new Element(),{dataset})});
 const clickView=view=>clickButton({view});
 const expected={
   combat:'Боевой стол готов', expedition:'Дорога под багровой звездой', hub:'Бастион Углей', characters:'Персонажи и существа',
-  scene:'Собор Пепла', library:'Визуальные эффекты', workshop:'Конструктор контента и модов', rules:'Что считает движок'
+  scene:'Собор Пепла', library:'Визуальные эффекты', photo:'Редактор изображений', workshop:'Конструктор контента и модов', rules:'Что считает движок'
 };
 for(const [view,needle] of Object.entries(expected)){
   clickView(view);
@@ -75,4 +76,4 @@ documentListeners.change({target:{id:'',dataset:{hubAssignment:assignment[1]},va
 assert.ok(elements.mainContent.innerHTML.includes(`data-hub-assignment="${assignment[1]}"`),'assignment change should rerender hub');
 clickView('library');
 for(const label of ['Спрайты и токены','Портреты','Боевые фоны','Карты маршрутов','Визуальные эффекты','Звуки','Музыка','Шрифты','Определения анимаций','Темы','Локализация'])assert.ok(elements.mainContent.innerHTML.includes(label),`library should contain ${label}`);
-console.log('headless renderer smoke: PASS (8 views + expansion UI)');
+console.log('headless renderer smoke: PASS (9 views + expansion UI + image studio)');

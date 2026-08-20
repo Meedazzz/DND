@@ -48,7 +48,8 @@
     stageEffect: null,
     appliedThemeId: null,
     appliedFontId: null,
-    desktop: !!window.grimdiceDesktop
+    desktop: !!window.grimdiceDesktop,
+    updateState: null
   };
 
   function loadLocalProfile() {
@@ -326,7 +327,7 @@
 
   function defaultHub() {
     return {
-      name: 'Бастион Углей', background: '/builtin/ember-bastion.jpg', gold: 1450, relics: 18,
+      name: 'Бастион Углей', background: '/builtin/hub-placeholder.jpg', gold: 1450, relics: 18,
       inventory: [], assignments: {},
       buildings: [
         { id:cryptoId(), name:'Братство клинка', icon:'⚔', level:1, maxLevel:5, cost:300, description:'Обучение приёмам и настройка боевых комплектов.' },
@@ -362,7 +363,7 @@
       characters: [hero1, hero2, hero3, hero4, hero5, enemy],
       combat: { round: 1, turnIndex: 0, started: false, targetId: enemy.id, cover: 0 },
       rollLog: [],
-      scene: { backgroundAsset: null, builtinBackground: '/builtin/ash-cathedral.jpg', mode: 'formation', name: 'Собор Пепла', formation: [], tokens: [] },
+      scene: { backgroundAsset: null, builtinBackground: '/builtin/stage-placeholder.jpg', mode: 'formation', name: 'Собор Пепла', formation: [], tokens: [] },
       expedition: defaultExpedition(),
       hub: defaultHub(),
       compendium: defaultCompendium(),
@@ -383,7 +384,8 @@
     s.scene.formation ||= [];
     s.scene.mode ||= 'formation';
     s.scene.name ||= 'Безымянное поле';
-    s.scene.builtinBackground ??= '/builtin/ash-cathedral.jpg';
+    if (!s.scene.builtinBackground || s.scene.builtinBackground === '/builtin/ash-cathedral.jpg') s.scene.builtinBackground = '/builtin/stage-placeholder.jpg';
+    if (!s.hub.background || s.hub.background === '/builtin/ember-bastion.jpg') s.hub.background = '/builtin/hub-placeholder.jpg';
     s.expedition = { ...defaultExpedition(), ...(s.expedition || {}) };
     s.expedition.supplies = { ...defaultExpedition().supplies, ...(s.expedition.supplies || {}) };
     s.expedition.route ||= defaultExpedition().route; s.expedition.inventory ||= []; s.expedition.log ||= [];
@@ -440,6 +442,8 @@
     document.getElementById('navRound').textContent = `РАУНД ${state.combat.round}`;
     document.getElementById('navCharacters').textContent = `${state.characters.length} ЛИСТОВ`;
     document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === runtime.view));
+    document.querySelectorAll('[data-gm-only="true"]').forEach(b => { b.hidden = !isGameMaster(); });
+    const updateBtn=document.getElementById('updateBtn');if(updateBtn)updateBtn.hidden=!runtime.desktop;
     const sync = document.getElementById('syncStatus');
     const roomBtn = document.getElementById('roomBtn');
     sync.classList.toggle('live', !!runtime.roomCode);
@@ -457,8 +461,10 @@
     else if (runtime.view === 'characters') main.innerHTML = renderCharacters();
     else if (runtime.view === 'scene') main.innerHTML = renderScene();
     else if (runtime.view === 'library') main.innerHTML = renderLibrary();
+    else if (runtime.view === 'photo') main.innerHTML = isGameMaster() ? (window.GrimDiceImageEditor?.renderMarkup?.() || '<section class="panel"><h2>Редактор не загрузился</h2></section>') : '<section class="panel denied-panel"><h2>Редактор доступен мастеру</h2><p>Игроки видят только разрешённые мастером материалы.</p></section>';
     else if (runtime.view === 'workshop') main.innerHTML = renderWorkshop();
     else if (runtime.view === 'rules') main.innerHTML = renderRules();
+    if(runtime.view==='photo'&&isGameMaster())window.GrimDiceImageEditor?.mount?.(main);
     resolveAssetElements();
   }
 
@@ -632,7 +638,7 @@
 
   function renderHub() {
     const h=state.hub, heroes=state.characters.filter(c=>c.role==='hero'), pairs=relationshipPairs(heroes);
-    return `<section class="hub-view"><div class="hub-panorama"><img src="${esc(h.background||'/builtin/ember-bastion.jpg')}" alt=""><div class="hub-title"><span class="section-kicker">УБЕЖИЩЕ МАСТЕРА</span><h1>${esc(h.name)}</h1><p>Районы, назначения, отношения и трофеи сохраняются между походами.</p></div><div class="hub-wallet"><span><small>ЗОЛОТО</small><b>${h.gold}</b></span><span><small>РЕЛИКВИИ</small><b>${h.relics}</b></span></div></div>
+    return `<section class="hub-view"><div class="hub-panorama"><img src="${esc(h.background||'/builtin/hub-placeholder.jpg')}" alt=""><div class="hub-title"><span class="section-kicker">УБЕЖИЩЕ МАСТЕРА</span><h1>${esc(h.name)}</h1><p>Районы, назначения, отношения и трофеи сохраняются между походами.</p></div><div class="hub-wallet"><span><small>ЗОЛОТО</small><b>${h.gold}</b></span><span><small>РЕЛИКВИИ</small><b>${h.relics}</b></span></div></div>
       <div class="hub-content"><div class="building-grid">${h.buildings.map(b=>`<article class="building-card"><span class="building-glyph">${esc(b.icon||'◆')}</span><div><small>УРОВЕНЬ ${b.level}/${b.maxLevel}</small><h3>${esc(b.name)}</h3><p>${esc(b.description)}</p></div><div class="building-actions"><button class="dark-btn" data-edit-building="${b.id}" ${isGameMaster()?'':'disabled'}>✎</button><button class="outline-btn" data-upgrade-building="${b.id}" ${b.level>=b.maxLevel||!isGameMaster()?'disabled':''}>Улучшить · ${b.cost} ◇</button></div></article>`).join('')}</div>
       <aside class="recovery-roster panel"><div class="panel-title"><h3>Распределение</h3><button data-action="hub-rest-all" ${isGameMaster()?'':'disabled'}>СМЕНА ЗАВЕРШЕНА</button></div>${heroes.map(c=>`<div class="recovery-row assigned"><div class="init-avatar" ${c.tokenAsset?`data-asset-bg="${c.tokenAsset}"`:''}>${c.tokenAsset?'':esc(initials(c.name))}</div><div><b>${esc(c.name)}</b><small>стресс ${c.stress} · ${resolveLabel(c.resolve)}</small><select class="select" data-hub-assignment="${c.id}" ${!isGameMaster()?'disabled':''}><option value="">Свободен</option>${h.buildings.map(b=>`<option value="${b.id}" ${h.assignments[c.id]===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select>${(c.inventory||[]).map(item=>`<button class="hero-item" data-use-item="${item.id}" data-character="${c.id}" ${!canControlCharacter(c.id)?'disabled':''}>${esc(item.icon||'◇')} ${esc(item.name)} · ${item.quantity||1}</button>`).join('')}</div><button data-hub-recover="${c.id}" ${!isGameMaster()?'disabled':''}>−25</button></div>`).join('')||'<p class="log-empty">Нет героев</p>'}<div class="vault-list"><small>ХРАНИЛИЩЕ</small>${h.inventory.map(item=>`<span>${esc(item.icon||'◇')} <b>${esc(item.name)}</b> · ${item.quantity||1}</span>`).join('')||'<p>Пусто</p>'}</div></aside></div>
       <section class="relationship-panel panel"><div class="panel-title"><div><h3>Узы отряда</h3><small>От −100 до +100; пороги влияют на стресс и лечение.</small></div></div><div class="relationship-grid">${pairs.map(([a,b,value])=>`<article class="relationship-card ${relationshipTier(value)}"><div><b>${esc(a.name)}</b><span>↔</span><b>${esc(b.name)}</b></div><small>${relationshipLabel(value)}</small><div class="relationship-track"><i style="left:${clamp((value+100)/2,0,100)}%"></i></div><footer><button data-relationship="${a.id}|${b.id}" data-delta="-5" ${!isGameMaster()?'disabled':''}>−</button><strong>${value>0?'+':''}${value}</strong><button data-relationship="${a.id}|${b.id}" data-delta="5" ${!isGameMaster()?'disabled':''}>＋</button></footer></article>`).join('')||'<p>Для отношений нужны хотя бы два героя.</p>'}</div></section>
@@ -1207,7 +1213,7 @@
 
   function showImportPreview(result) {
     const c=result.character;
-    showModal(`<div class="modal wide"><div class="modal-head"><div><h2>Проверка импорта · ${esc(c.name)}</h2><p>Найдено полей: ${result.found.length} · предупреждений: ${result.warnings.length}</p></div><button class="modal-close" data-close-modal>×</button></div><div class="modal-body"><div class="sheet-layout"><aside class="sheet-sidebar"><div class="sheet-identity"><span class="section-kicker">ПРЕДПРОСМОТР</span><h2>${esc(c.name)}</h2><p>${esc([c.race,c.className,c.level?`${c.level} ур.`:''].filter(Boolean).join(' · '))}</p><div class="big-vitals"><div><small>КД</small><b>${c.ac}</b></div><div><small>ХП</small><b>${c.hp}/${c.maxHp}</b></div><div><small>ДЕЙСТВИЯ</small><b>${c.actions.length}</b></div></div></div></aside><div class="sheet-content"><h3 style="font-family:Georgia;margin-top:0">Аудит полей</h3><div class="audit-list">${c.audit.map(x=>`<div class="audit-item ${x.status}"><span>${esc(x.label)}</span><b>${x.status==='ok'?'✓ ':'⚠ '}${esc(x.note)}</b></div>`).join('')}</div><h3 style="font-family:Georgia">Распознанные действия</h3>${c.actions.map(a=>`<div class="action-row"><div><b>${esc(a.name)}</b><div class="action-detail">${esc(actionDetail(a))}</div></div></div>`).join('')||'<p style="color:var(--muted)">Нет действий</p>'}</div></div></div><div class="modal-actions"><button class="dark-btn" data-action="back-to-import">← Назад к тексту</button><div class="modal-actions-right"><button class="dark-btn" data-close-modal>Отмена</button><button class="red-btn" id="confirmImportBtn">Добавить на стол</button></div></div></div>`);
+    showModal(`<div class="modal wide"><div class="modal-head"><div><h2>Проверка импорта · ${esc(c.name)}</h2><p>Найдено полей: ${result.found.length} · предупреждений: ${result.warnings.length}</p></div><button class="modal-close" data-close-modal>×</button></div><div class="modal-body"><div class="="sheet-layout"><aside class="sheet-sidebar"><div class="sheet-identity"><span class="section-kicker">ПРЕДПРОСМОТР</span><h2>${esc(c.name)}</h2><p>${esc([c.race,c.className,c.level?`${c.level} ур.`:''].filter(Boolean).join(' · '))}</p><div class="big-vitals"><div><small>КД</small><b>${c.ac}</b></div><div><small>ХП</small><b>${c.hp}/${c.maxHp}</b></div><div><small>ДЕЙСТВИЯ</small><b>${c.actions.length}</b></div></div></div></aside><div class="sheet-content"><h3 style="font-family:Georgia;margin-top:0">Аудит полей</h3><div class="audit-list">${c.audit.map(x=>`<div class="audit-item ${x.status}"><span>${esc(x.label)}</span><b>${x.status==='ok'?'✓ ':'⚠ '}${esc(x.note)}</b></div>`).join('')}</div><h3 style="font-family:Georgia">Распознанные действия</h3>${c.actions.map(a=>`<div class="action-row"><div><b>${esc(a.name)}</b><div class="action-detail">${esc(actionDetail(a))}</div></div></div>`).join('')||'<p style="color:var(--muted)">Нет действий</p>'}</div></div></div><div class="modal-actions"><button class="dark-btn" data-action="back-to-import">← Назад к тексту</button><div class="modal-actions-right"><button class="dark-btn" data-close-modal>Отмена</button><button class="red-btn" id="confirmImportBtn">Добавить на стол</button></div></div></div>`);
     document.getElementById('confirmImportBtn').onclick=()=>{ state.characters.push(c); closeModal(); commit(); toast('Исходный текст сохранён в листе', c.name); };
   }
 
@@ -1278,7 +1284,19 @@
   }
 
   function showSettings() {
-    showModal(`<div class="modal"><div class="modal-head"><div><h2>Настройки кампании</h2><p>Локальные данные и перенос между устройствами</p></div><button class="modal-close" data-close-modal>×</button></div><div class="modal-body"><div class="form-grid"><div class="form-field full"><label>Название кампании</label><input id="settingsTitle" class="text-input" value="${esc(state.campaign.title)}"></div><div class="form-field"><label>Редакция</label><select id="settingsEdition" class="select"><option value="2014" ${state.campaign.edition==='2014'?'selected':''}>5e · 2014</option><option value="2024" ${state.campaign.edition==='2024'?'selected':''}>5e · 2024</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:18px"><button class="dark-btn" data-action="export-campaign">Экспорт JSON</button><button class="dark-btn" data-action="import-campaign">Импорт JSON</button><button class="danger-btn" data-action="reset-demo">Сбросить на демо</button></div></div><div class="modal-actions"><span></span><div class="modal-actions-right"><button class="dark-btn" data-close-modal>Отмена</button><button class="red-btn" data-action="save-settings">Сохранить</button></div></div></div>`);
+    showModal(`<div class="modal"><div class="modal-head"><div><h2>Настройки кампании</h2><p>Локальные данные и перенос между устройствами</p></div><button class="modal-close" data-close-modal>×</button></div><div class="modal-body"><div class="form-grid"><div class="form-field full"><label>Название кампании</label><input id="settingsTitle" class="text-input" value="${esc(state.campaign.title)}"></div><div class="form-field"><label>Редакция</label><select id="settingsEdition" class="select"><option value="2014" ${state.campaign.edition==='2014'?'selected':''}>5e · 2014</option><option value="2024" ${state.campaign.edition==='2024'?'selected':''}>5e · 2024</option></select></div></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:18px"><button class="dark-btn" data-action="export-campaign">Экспорт JSON</button><button class="dark-btn" data-action="import-campaign">Импорт JSON</button>${runtime.desktop?'<button class="dark-btn" data-action="show-update">Обновление приложения</button>':''}<button class="danger-btn" data-action="reset-demo">Сбросить на демо</button></div></div><div class="modal-actions"><span></span><div class="modal-actions-right"><button class="dark-btn" data-close-modal>Отмена</button><button class="red-btn" data-action="save-settings">Сохранить</button></div></div></div>`);
+  }
+
+  function renderUpdateModal() {
+    const status=runtime.updateState||{phase:'idle',currentVersion:'2.1.0',availableVersion:'',percent:0,message:'Получаем состояние обновлений…'};
+    const busy=['checking','downloading'].includes(status.phase),available=status.phase==='available',ready=status.phase==='ready';
+    showModal(`<div class="modal update-modal" id="updateModal"><div class="modal-head"><div><h2>Обновление GrimDice</h2><p>Установщики и метаданные поступают из GitHub Releases</p></div><button class="modal-close" data-close-modal>×</button></div><div class="modal-body"><div class="update-summary"><div><small>УСТАНОВЛЕНО</small><b>${esc(status.currentVersion||'—')}</b></div><span>→</span><div><small>ДОСТУПНО</small><b>${esc(status.availableVersion||(status.phase==='current'?'актуально':'—'))}</b></div></div><div class="update-message ${status.phase==='error'?'error':''}">${esc(status.message||'')}</div><div class="update-progress"><i style="width:${clamp(status.percent||0,0,100)}%"></i></div><p class="micro">Проверка выполняется автоматически после запуска установленной версии и затем каждые 6 часов. Загруженное обновление также установится при выходе.</p></div><div class="modal-actions"><button class="dark-btn" data-action="open-releases">GitHub Releases</button><div class="modal-actions-right"><button class="dark-btn" data-action="update-check" ${busy?'disabled':''}>Проверить</button>${available?'<button class="red-btn" data-action="update-download">Загрузить</button>':''}${ready?'<button class="red-btn" data-action="update-install">Перезапустить и установить</button>':''}</div></div></div>`);
+  }
+
+  function showUpdateModal() {
+    if(!window.grimdiceDesktop)return toast('Обновления доступны в установленном приложении','GrimDice');
+    renderUpdateModal();
+    window.grimdiceDesktop.getUpdateState().then(status=>{runtime.updateState=status;if(document.getElementById('updateModal'))renderUpdateModal();}).catch(error=>toast(error.message,'Обновление'));
   }
 
   function showModal(html) { document.getElementById('modalHost').innerHTML=`<div class="modal-backdrop">${html}</div>`; resolveAssetElements(); }
@@ -1358,6 +1376,17 @@
       }
       commit();await applyActiveVisualMods();toast('Декларативный визуальный мод активирован',MEDIA_CATEGORIES[kind].label);
     }catch(error){toast(error.message,'Файл не прошёл проверку');}
+  }
+
+  async function saveEditedImage(event) {
+    if(!isGameMaster())return toast('Сохранять изображения может только мастер','Права стола');
+    const detail=event?.detail||{},allowed=new Set(['backgrounds','maps','portraits','sprites','effects']);
+    if(!(detail.blob instanceof Blob)||!allowed.has(detail.kind))return toast('Редактор передал недопустимый файл','Ошибка медиатеки');
+    try{
+      const id=await putAsset(detail.blob);
+      state.media[detail.kind].push({id,name:String(detail.title||detail.name||'edited-image').slice(0,80),fileName:String(detail.name||'edited-image.png').slice(0,160),size:detail.blob.size,type:detail.blob.type||detail.mime||'image/png',width:Number(detail.width)||null,height:Number(detail.height)||null,edited:true});
+      commit(false);toast(`Изображение добавлено: ${detail.title||detail.name}`,'Редактор');
+    }catch(error){toast(error.message||'Не удалось записать файл','Ошибка медиатеки');}
   }
 
   async function uploadMedia(kind) {
@@ -1442,7 +1471,7 @@
 
   function handleClick(e) {
     const btn=e.target.closest('button,[data-sheet],[data-hp],[data-play-action],[data-stage-target]'); if(!btn)return;
-    if(btn.dataset.view){runtime.view=btn.dataset.view;updateChrome();renderView();return;}
+    if(btn.dataset.view){if(btn.dataset.view==='photo'&&!isGameMaster()){toast('Редактор доступен мастеру','Права стола');return;}runtime.view=btn.dataset.view;updateChrome();renderView();return;}
     if(btn.dataset.edition){state.campaign.edition=btn.dataset.edition;commit();return;}
     if(btn.dataset.rollMode){runtime.rollMode=btn.dataset.rollMode;renderView();return;}
     if(btn.dataset.die){const r=rollExpression(`1d${btn.dataset.die}`);addLog({actor:'Стол',name:`Бросок d${btn.dataset.die}`,expression:r.detail,total:r.total,summary:'свободный бросок'});commit();return;}
@@ -1539,6 +1568,11 @@
     else if(a==='disconnect-room'){disconnectRoom();closeModal();renderView();}
     else if(a==='export-campaign')exportCampaign();
     else if(a==='import-campaign')importCampaignFile();
+    else if(a==='show-update')showUpdateModal();
+    else if(a==='update-check')window.grimdiceDesktop?.checkForUpdates();
+    else if(a==='update-download')window.grimdiceDesktop?.downloadUpdate();
+    else if(a==='update-install')window.grimdiceDesktop?.installUpdate();
+    else if(a==='open-releases')window.grimdiceDesktop?.openReleases();
     else if(a==='reset-demo'){if(confirm('Сбросить текущую кампанию и вернуть демонстрационные данные?')){state=demoState();closeModal();commit();}}
     else if(a==='save-settings'){state.campaign.title=document.getElementById('settingsTitle').value||'Безымянная кампания';state.campaign.edition=document.getElementById('settingsEdition').value;closeModal();commit();}
   }
@@ -1550,11 +1584,13 @@
     document.addEventListener('click',handleClick);
     document.addEventListener('change',handleChange);
     document.addEventListener('submit',handleSubmit);
+    document.addEventListener('grimdice-image-save',saveEditedImage);
     document.getElementById('campaignTitle').addEventListener('click',()=>{const v=prompt('Название кампании',state.campaign.title);if(v?.trim()){state.campaign.title=v.trim();commit();}});
     document.getElementById('roomBtn').addEventListener('click',showRoomModal);
     document.getElementById('settingsBtn').addEventListener('click',showSettings);
     document.getElementById('gmMenuBtn').addEventListener('click',showSettings);
     document.getElementById('saveExportBtn').addEventListener('click',exportCampaign);
+    document.getElementById('updateBtn')?.addEventListener('click',showUpdateModal);
     document.getElementById('quickDiceBtn').addEventListener('click',()=>{runtime.view='combat';updateChrome();renderView();setTimeout(()=>document.getElementById('customRollInput')?.focus(),20);});
     document.getElementById('campaignImportInput').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{state=migrateState(JSON.parse(await file.text()));closeModal();commit();toast('Кампания загружена','Импорт');}catch{toast('Не удалось прочитать JSON','Ошибка');}e.target.value='';});
     document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();exportCampaign();}});
@@ -1564,6 +1600,8 @@
       else if(command==='new'&&confirm('Создать новую кампанию? Несохранённые изменения останутся только в локальной копии.')){const fresh=demoState();fresh.campaign.title='Новая кампания';fresh.characters=[];fresh.rollLog=[];fresh.scene.formation=[];state=fresh;commit();}
       else if(command.startsWith('view-')){runtime.view=command.slice(5);updateChrome();renderView();}
     });
+    window.grimdiceDesktop?.onUpdateStatus(status=>{runtime.updateState=status;if(document.getElementById('updateModal'))renderUpdateModal();if(status.phase==='ready')toast('Обновление загружено и готово к установке','GrimDice');});
+    window.grimdiceDesktop?.getUpdateState().then(status=>{runtime.updateState=status;}).catch(()=>{});
   }
 
   bindGlobal(); updateChrome(); renderView();

@@ -1,14 +1,14 @@
 {
   "name": "grimdice-vtt",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "main": "desktop/main.cjs",
   "description": "Готическая настольная 5e-кампания: пять героев, экспедиции, Бастион, конструктор, визуальные моды и защищённая сеть",
-  "homepage": "https://arena.ai/",
+  "homepage": "https://github.com/Meedazzz/DND",
   "author": {
-    "name": "GrimDice Project",
-    "email": "noreply@arena.ai"
+    "name": "Meedazzz",
+    "email": "149483374+Meedazzz@users.noreply.github.com"
   },
   "license": "UNLICENSED",
   "scripts": {
@@ -18,17 +18,22 @@
     "pack": "node desktop/build.cjs dir",
     "pack:windows": "node desktop/build.cjs windows",
     "pack:linux": "node desktop/build.cjs linux",
-    "pack:mac": "node desktop/build.cjs mac"
+    "pack:mac": "node desktop/build.cjs mac",
+    "test": "npm run test:syntax && npm run test:renderer && npm run test:network && npm run test:editor",
+    "test:syntax": "node --check public/app.js && node --check public/photo-editor.js && node --check server.mjs && node --check desktop/main.cjs && node --check desktop/preload.cjs",
+    "test:renderer": "node tests/renderer-smoke.cjs",
+    "test:network": "node tests/network-smoke.mjs",
+    "test:editor": "node tests/photo-editor-smoke.cjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.12.0"
   },
   "devDependencies": {
-    "electron": "^37.2.6",
+    "electron": "^43.4.1",
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "ai.arena.grimdice",
+    "appId": "com.meedazzz.grimdice",
     "productName": "GrimDice",
     "asar": true,
     "asarUnpack": [
@@ -48,13 +53,33 @@
     "extraMetadata": {
       "main": "desktop/main.cjs"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "Meedazzz",
+      "repo": "DND",
+      "releaseType": "release"
+    },
+    "generateUpdatesFilesForAllChannels": true,
     "win": {
       "target": [
-        "portable",
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.png",
-      "artifactName": "GrimDice-${version}-Windows-${arch}.${ext}"
+      "artifactName": "GrimDice-${version}-Windows-${arch}-Setup.${ext}"
+    },
+    "nsis": {
+      "artifactName": "GrimDice-${version}-Windows-${arch}-Setup.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GrimDice",
+      "deleteAppDataOnUninstall": false
     },
     "linux": {
       "target": [
@@ -63,6 +88,9 @@
       ],
       "category": "Game",
       "icon": "assets/icon.png",
+      "executableName": "grimdice",
+      "syncDesktopName": true,
+      "maintainer": "Meedazzz <149483374+Meedazzz@users.noreply.github.com>",
       "artifactName": "GrimDice-${version}-Linux-${arch}.${ext}"
     },
     "mac": {
@@ -72,17 +100,20 @@
       ],
       "category": "public.app-category.role-playing-games",
       "icon": "assets/icon.png",
-      "artifactName": "GrimDice-${version}-macOS-${arch}.${ext}"
+      "artifactName": "GrimDice-${version}-macOS-${arch}.${ext}",
+      "identity": null
     },
-    "portable": {
-      "artifactName": "GrimDice-${version}-Windows-${arch}.${ext}"
-    },
-    "nsis": {
-      "artifactName": "GrimDice-${version}-Windows-${arch}-Setup.${ext}",
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "shortcutName": "GrimDice"
+    "dmg": {
+      "artifactName": "GrimDice-${version}-macOS-${arch}.${ext}",
+      "title": "GrimDice ${version}"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "desktopName": "grimdice.desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Meedazzz/DND.git"
   }
 }
