@@ -73,7 +73,7 @@ try {
     content: { items: [{ id: 'secret' }], actions: [], creatures: [{ id: 'secret' }], mods: [] },
     battle: {
       active: true, round: 1, turnIndex: 0, order: ['h1', 'e1'],
-      positions: { h1: 'a1', e1: 'a2' }, movement: { h1: 30, e1: 30 },
+      positions: { h1: 'a1', h2: 't1', e1: 'a2' }, movement: { h1: 30, h2: 30, e1: 30 },
       turnStartZones: { h1: 'a1' }, flags: { h1: {} }, targetId: null, result: null, log: [],
     },
   };
@@ -92,7 +92,10 @@ try {
   assert.equal(join.data.characterId, 'h1');
   const playerToken = join.data.token;
   const visible = join.data.state;
-  assert.deepEqual(visible.characters.map(c => c.id).sort(), ['e1', 'h1']);
+  assert.deepEqual(visible.characters.map(c => c.id).sort(), ['e1', 'h1', 'h2']);
+  const visibleAlly = visible.characters.find(c => c.id === 'h2');
+  assert.equal(visibleAlly.sourceText, undefined);
+  assert.equal(visibleAlly.actions, undefined, 'positioned ally is a battle projection, not an accessible sheet');
   assert.equal(visible.characters.find(c => c.id === 'e1').sourceText, undefined);
   assert.deepEqual(visible.world.locations.map(x => x.id), ['l1']);
   assert.equal(visible.world.locations[0].gmNotes, undefined);
@@ -255,7 +258,7 @@ try {
   gmRead = await request(`${roomPath}/state`, { token: gmToken });
   authoritative = gmRead.data.state;
   assert.equal(authoritative.characters.find(c => c.id === 'e1').hp, 7);
-  assert.deepEqual(authoritative.battle.positions, { h1: 'a1', e1: 'a2' });
+  assert.deepEqual(authoritative.battle.positions, { h1: 'a1', h2: 't1', e1: 'a2' });
   assert.equal(authoritative.battle.movement.h1, 30);
   assert.equal(authoritative.battle.result, null);
   assert.deepEqual(authoritative.battle.log, []);
@@ -278,7 +281,11 @@ try {
   assert.equal(assignment.data.members.find(member => member.clientId === 'p-2').characterId, 'h1');
   assert.equal(assignment.data.members.find(member => member.clientId === 'p-1').characterId, null);
   const formerOwner = await request(`${roomPath}/state`, { token: playerToken });
-  assert.ok(!formerOwner.data.state.characters.some(character => character.id === 'h1'));
+  const formerOwnerBattleHero = formerOwner.data.state.characters.find(character => character.id === 'h1');
+  assert.ok(formerOwnerBattleHero, 'positioned allies remain visible on the shared battle scene');
+  assert.equal(formerOwnerBattleHero.sourceText, undefined);
+  assert.equal(formerOwnerBattleHero.className, undefined, 'an unowned battle participant is not an exposed sheet');
+  assert.equal(formerOwnerBattleHero.actions, undefined);
   const reassignedOwner = await request(`${roomPath}/state`, { token: duplicate.data.token });
   assert.ok(reassignedOwner.data.state.characters.some(character => character.id === 'h1'));
 

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "desktop/main.cjs",
-  "description": "«Драконья Сага» — настольный стол кампании 5e с четырёхзонным боем, северным миром, торговлей, сценами и защищённой сетью",
+  "description": "«Драконья Сага» — боевой стол D&D 5e с четырьмя тактическими зонами и защищённой сетевой игрой",
   "homepage": "https://github.com/Meedazzz/DND",
   "author": {
     "name": "Meedazzz",
@@ -30,8 +30,8 @@
     "node": ">=22.12.0"
   },
   "devDependencies": {
-    "electron": "^43.4.1",
-    "electron-builder": "^26.0.12"
+    "electron": "43.4.1",
+    "electron-builder": "26.15.3"
   },
   "build": {
     "appId": "com.meedazzz.dragonsaga",
@@ -110,7 +110,7 @@
     }
   },
   "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electron-updater": "6.8.9"
   },
   "desktopName": "dragon-saga.desktop",
   "repository": {

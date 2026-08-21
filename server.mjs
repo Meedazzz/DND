@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC=path.join(__dirname,'public');
 const PORT=Number(process.env.DRAGON_SAGA_PORT||process.env.PORT||4173);
-const MAX_BODY=64*1024*1024;
+const MAX_BODY=256*1024*1024;
 const rooms=new Map();
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.mp3':'audio/mpeg','.ogg':'audio/ogg','.wav':'audio/wav','.m4a':'audio/mp4','.woff':'font/woff','.woff2':'font/woff2'};
 const securityHeaders={'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob: data:; font-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'none'",'Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'SAMEORIGIN'};
@@ -21,7 +21,7 @@ function overlay(room){const members=membersFor(room);return{members,owners:Obje
 function sanitizeCampaign(value){const s=clone(value);if(!s||typeof s!=='object'||s.schema!=='dragon-saga-campaign')throw Object.assign(new Error('Invalid Dragon Saga campaign'),{status:400});s.session={};delete s.network;return s}
 function stateForSession(room,session){if(!room.state)return null;const visible=clone(room.state);visible.network=overlay(room);if(!session||session.role!=='gm'){
  const ownId=session?.characterId||null;const positioned=new Set(Object.keys(visible.battle?.positions||{}));
- visible.characters=(visible.characters||[]).filter(c=>c.id===ownId||(visible.permissions?.partySheetView&&c.role==='hero'&&c.visibility!=='private'&&c.visibility!=='gm')||(c.role==='enemy'&&positioned.has(c.id))).map(c=>{if(c.id!==ownId){delete c.sourceText;delete c.gmNotes;delete c.audit}return c});
+ visible.characters=(visible.characters||[]).filter(c=>c.id===ownId||positioned.has(c.id)).map(c=>{if(c.id===ownId)return c;return{id:c.id,name:c.name,role:c.role,hp:c.hp,maxHp:c.maxHp,tempHp:c.tempHp,ac:c.ac,speed:c.speed,initiative:c.initiative,initiativeRoll:c.initiativeRoll,reactionAvailable:c.reactionAvailable,conditions:clone(c.conditions||[]),resistances:clone(c.resistances||[]),vulnerabilities:clone(c.vulnerabilities||[]),immunities:clone(c.immunities||[]),boss:Boolean(c.boss),telegraph:clone(c.telegraph||null),tokenAsset:c.tokenAsset||null,modelAsset:c.modelAsset||null,modelScale:c.modelScale||100,visibility:'battle'} });
  if(visible.journal){visible.journal.personal=ownId&&visible.journal.personal?.[ownId]?{[ownId]:visible.journal.personal[ownId]}:{} }
  if(visible.world){visible.world.locations=(visible.world.locations||[]).filter(x=>x.discovered).map(x=>{delete x.gmNotes;return x});visible.world.routes=(visible.world.routes||[]).filter(x=>x.available!==false).map(x=>{delete x.gmNotes;return x})}
  visible.cities=(visible.cities||[]).filter(c=>c.available).map(c=>({...c,merchants:(c.merchants||[]).filter(m=>m.available).map(m=>({...m,stock:(m.stock||[]).filter(i=>i.available)}))}));

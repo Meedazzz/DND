@@ -3,45 +3,38 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#0b1014" />
-  <title>Драконья Сага — стол кампании 5e</title>
+  <meta name="theme-color" content="#111719" />
+  <title>Драконья Сага — боевая сцена 5e</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div id="app" class="app-shell">
+  <div id="app" class="app-shell combat-app">
     <aside class="sidebar">
-      <button class="brand" data-view="dashboard" aria-label="Обзор кампании">
+      <button class="brand" data-view="battle" aria-label="Открыть боевую сцену">
         <span class="brand-sigil" aria-hidden="true"><i></i></span>
         <span class="brand-copy"><b>ДРАКОНЬЯ</b><em>САГА</em></span>
       </button>
-      <div class="role-ribbon"><span id="roleBadge">МАСТЕР</span><small id="roleHint">полный контроль стола</small></div>
-      <nav class="main-nav" aria-label="Разделы кампании">
-        <button data-view="dashboard" class="nav-item active"><span class="nav-icon">◈</span><span>Обзор</span><small>ГРУППА & РЕСУРСЫ</small></button>
-        <button data-view="battle" class="nav-item"><span class="nav-icon">⚔</span><span>Поле боя</span><small id="navRound">РАУНД 1</small></button>
-        <button data-view="characters" class="nav-item"><span class="nav-icon">♙</span><span id="characterNavLabel">Персонажи</span><small id="navCharacters">0 ЛИСТОВ</small></button>
-        <button data-view="journal" class="nav-item"><span class="nav-icon">✎</span><span>Журнал</span><small>ЗАМЕТКИ & ХРОНИКА</small></button>
-        <button data-view="world" class="nav-item"><span class="nav-icon">⌘</span><span>Север</span><small>КАРТА & МАРШРУТЫ</small></button>
-        <button data-view="cities" class="nav-item"><span class="nav-icon">♜</span><span>Города</span><small>ТОРГОВЦЫ & ОБМЕН</small></button>
-        <button data-view="scene" class="nav-item"><span class="nav-icon">▧</span><span>Сцены</span><small>ФОН & ОБЪЕКТЫ</small></button>
-        <button data-view="library" class="nav-item"><span class="nav-icon">♪</span><span>Медиатека</span><small>МОДЕЛИ & ЗВУК</small></button>
-        <button data-view="photo" class="nav-item" data-editor-only="true"><span class="nav-icon">◩</span><span>Фоторедактор</span><small>КАДР & ЭФФЕКТЫ</small></button>
-        <button data-view="workshop" class="nav-item" data-gm-only="true"><span class="nav-icon">⚒</span><span>Конструктор</span><small>КОНТЕНТ & МОДЫ</small></button>
-        <button data-view="rules" class="nav-item"><span class="nav-icon">§</span><span>Правила</span><small>ПОМОЩЬ ПО РОЛИ</small></button>
+      <div class="role-ribbon"><span id="roleBadge">МАСТЕР</span><small id="roleHint">боевая сцена</small></div>
+      <nav class="main-nav" aria-label="Рабочее пространство боя">
+        <button data-view="battle" class="nav-item active"><span class="nav-icon">⚔</span><span>Боевая сцена</span><small id="navRound">ПОДГОТОВКА</small></button>
+        <button data-view="characters" class="nav-item"><span class="nav-icon">♙</span><span id="characterNavLabel">Герои</span><small id="navCharacters">5 ЛИСТОВ</small></button>
+        <button data-view="enemies" class="nav-item" data-gm-only="true"><span class="nav-icon">♟</span><span>Враги</span><small>ИМПОРТ СТАТБЛОКА</small></button>
       </nav>
+      <div class="side-note" data-gm-only="true"><b>БЫСТРЫЙ СТАРТ</b><span>Вставьте текст врага справа, расставьте участников и начинайте бой.</span></div>
       <div class="side-bottom">
-        <div class="sync-status" id="syncStatus"><i></i><span>Локальная кампания</span></div>
+        <div class="sync-status" id="syncStatus"><i></i><span>Локальная сцена</span></div>
         <button class="side-action" id="saveExportBtn">⇩ <span>Сохранить кампанию</span></button>
         <button class="side-action" id="updateBtn" hidden>↻ <span>Обновления</span></button>
-        <button class="side-action" id="settingsBtn">⚙ <span>Настройки и права</span></button>
-        <div class="version">DRAGON SAGA · 2.2.0</div>
+        <button class="side-action" id="settingsBtn">⚙ <span>Игроки и настройки</span></button>
+        <div class="version">DRAGON SAGA · COMBAT DESK</div>
       </div>
     </aside>
 
     <div class="main-column">
       <header class="topbar">
-        <div class="campaign-heading"><span class="eyebrow">КАМПАНИЯ</span><button id="campaignTitle" class="title-edit" title="Переименовать кампанию">Новая сага <span>✎</span></button></div>
+        <div class="campaign-heading"><span class="eyebrow">БОЕВОЙ СТОЛ</span><button id="campaignTitle" class="title-edit" title="Переименовать сцену">Северная застава <span>✎</span></button></div>
         <div class="top-center"><div class="edition-switch" role="group" aria-label="Редакция правил"><button data-edition="2014">5E · 2014</button><button data-edition="2024" class="active">5E · 2024</button></div><span id="autosaveLabel" class="autosave">✓ СОХРАНЕНО</span></div>
-        <div class="top-actions"><button class="ghost-btn" id="quickDiceBtn">◇ Бросок</button><button class="room-btn" id="roomBtn"><i></i><span>Общий стол</span></button><button class="avatar-btn" id="profileBtn" title="Профиль и права">М</button></div>
+        <div class="top-actions"><button class="ghost-btn" id="quickDiceBtn">◇ Кубы</button><button class="room-btn" id="roomBtn"><i></i><span>Общий стол</span></button><button class="avatar-btn" id="profileBtn" title="Профиль и права">М</button></div>
       </header>
       <main id="mainContent"></main>
     </div>
