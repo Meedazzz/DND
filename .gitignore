@@ -1,8 +1,9 @@
-node_modules/
-release-build/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+build/
+dist/
+*.spec
 *.log
 .DS_Store
-Thumbs.db
-.env
-.env.*
-!.env.example

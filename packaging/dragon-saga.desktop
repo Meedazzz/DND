@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Драконья Сага
+Comment=Компактный боевой стол D&D 5e
+Exec=dragon-saga
+Icon=dragon-saga
+Categories=Game;RolePlaying;
+Terminal=false

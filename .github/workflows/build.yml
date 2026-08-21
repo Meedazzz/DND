@@ -1,0 +1,154 @@
+name: Build Dragon Saga Python
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Тег выпуска, например v3.2.0 (оставьте пустым только для проверки)"
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install pytest==8.4.1
+      - run: python -m pytest
+      - run: python -m compileall -q dragon_saga main.py
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: pyinstaller --noconfirm --clean --windowed --icon packaging/dragon-saga.ico --name DragonSaga main.py
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMySourceDir=$pwd\dist\DragonSaga" "packaging\windows.iss"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: release/Dragon-Saga-3.2.0-Windows-x64-Setup.exe
+
+  linux:
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 libxkbcommon-x11-0 libegl1 libgl1 libxcb-cursor0 libxcb-keysyms1 libxcb-render-util0 libxcb-icccm4 libxcb-util1 libxcb-image0 libxcb-xkb1
+      - run: python -m pip install -r requirements-dev.txt
+      - run: pyinstaller --noconfirm --clean --windowed --name DragonSaga main.py
+      - name: Build AppImage and DEB
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p release AppDir/usr/bin
+          cp -a dist/DragonSaga AppDir/usr/bin/DragonSaga
+          cp packaging/dragon-saga.desktop AppDir/dragon-saga.desktop
+          cp packaging/dragon-saga.svg AppDir/dragon-saga.svg
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/DragonSaga/DragonSaga" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          curl -fL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir release/Dragon-Saga-3.2.0-Linux-x86_64.AppImage
+          mkdir -p deb/DEBIAN deb/opt/dragon-saga deb/usr/bin deb/usr/share/applications deb/usr/share/icons/hicolor/scalable/apps
+          cp -a dist/DragonSaga/. deb/opt/dragon-saga/
+          cp packaging/dragon-saga.desktop deb/usr/share/applications/
+          cp packaging/dragon-saga.svg deb/usr/share/icons/hicolor/scalable/apps/
+          cat > deb/usr/bin/dragon-saga <<'EOF'
+          #!/bin/sh
+          exec /opt/dragon-saga/DragonSaga "$@"
+          EOF
+          chmod +x deb/usr/bin/dragon-saga
+          cat > deb/DEBIAN/control <<'EOF'
+          Package: dragon-saga
+          Version: 3.2.0
+          Section: games
+          Priority: optional
+          Architecture: amd64
+          Depends: libxkbcommon0, libxkbcommon-x11-0, libegl1, libgl1, libxcb-cursor0, libxcb-keysyms1, libxcb-render-util0, libxcb-icccm4, libxcb-util1, libxcb-image0, libxcb-xkb1
+          Maintainer: Meedazzz <149483374+Meedazzz@users.noreply.github.com>
+          Description: Компактный боевой стол D&D 5e на Python
+          EOF
+          dpkg-deb --root-owner-group --build deb release/Dragon-Saga-3.2.0-Linux-x86_64.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: release/*
+
+  macos:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: pyinstaller --noconfirm --clean --windowed --icon packaging/dragon-saga.png --name "DragonSaga" main.py
+      - name: Build DMG and updater ZIP
+        run: |
+          mkdir -p release
+          ditto -c -k --sequesterRsrc --keepParent dist/DragonSaga.app release/Dragon-Saga-3.2.0-macOS-${{ matrix.arch }}.zip
+          hdiutil create -volname "Драконья Сага 3.2.0" -srcfolder dist/DragonSaga.app -ov -format UDZO release/Dragon-Saga-3.2.0-macOS-${{ matrix.arch }}.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: release/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd artifacts
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: Драконья Сага Python ${{ inputs.release_tag || github.ref_name }}
+          generate_release_notes: true
+          prerelease: false
+          files: artifacts/*
