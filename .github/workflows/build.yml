@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Тег выпуска, например v3.2.0 (оставьте пустым только для проверки)"
+        description: "Тег выпуска, например v4.0.0 (оставьте пустым только для проверки)"
         required: false
         default: ""
   push:
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: release/Dragon-Saga-3.2.0-Windows-x64-Setup.exe
+          path: release/Dragon-Saga-4.0.0-Windows-x64-Setup.exe
 
   linux:
     needs: test
@@ -77,7 +77,7 @@ jobs:
           chmod +x AppDir/AppRun
           curl -fL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
-          ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir release/Dragon-Saga-3.2.0-Linux-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir release/Dragon-Saga-4.0.0-Linux-x86_64.AppImage
           mkdir -p deb/DEBIAN deb/opt/dragon-saga deb/usr/bin deb/usr/share/applications deb/usr/share/icons/hicolor/scalable/apps
           cp -a dist/DragonSaga/. deb/opt/dragon-saga/
           cp packaging/dragon-saga.desktop deb/usr/share/applications/
@@ -89,7 +89,7 @@ jobs:
           chmod +x deb/usr/bin/dragon-saga
           cat > deb/DEBIAN/control <<'EOF'
           Package: dragon-saga
-          Version: 3.2.0
+          Version: 4.0.0
           Section: games
           Priority: optional
           Architecture: amd64
@@ -97,7 +97,7 @@ jobs:
           Maintainer: Meedazzz <149483374+Meedazzz@users.noreply.github.com>
           Description: Компактный боевой стол D&D 5e на Python
           EOF
-          dpkg-deb --root-owner-group --build deb release/Dragon-Saga-3.2.0-Linux-x86_64.deb
+          dpkg-deb --root-owner-group --build deb release/Dragon-Saga-4.0.0-Linux-x86_64.deb
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -125,8 +125,8 @@ jobs:
       - name: Build DMG and updater ZIP
         run: |
           mkdir -p release
-          ditto -c -k --sequesterRsrc --keepParent dist/DragonSaga.app release/Dragon-Saga-3.2.0-macOS-${{ matrix.arch }}.zip
-          hdiutil create -volname "Драконья Сага 3.2.0" -srcfolder dist/DragonSaga.app -ov -format UDZO release/Dragon-Saga-3.2.0-macOS-${{ matrix.arch }}.dmg
+          ditto -c -k --sequesterRsrc --keepParent dist/DragonSaga.app release/Dragon-Saga-4.0.0-macOS-${{ matrix.arch }}.zip
+          hdiutil create -volname "Драконья Сага 4.0.0" -srcfolder dist/DragonSaga.app -ov -format UDZO release/Dragon-Saga-4.0.0-macOS-${{ matrix.arch }}.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}

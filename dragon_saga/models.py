@@ -17,7 +17,7 @@ ZONES = ("T1", "A1", "A2", "T2")
 class Action:
     id: str = field(default_factory=lambda: uid("act"))
     name: str = "Действие"
-    kind: str = "attack"  # attack, save, heal, utility
+    kind: str = "attack"  # attack, save, damage, heal, utility
     attack_bonus: int | None = None
     damage: str = "1d4"
     damage_type: str = ""
@@ -26,6 +26,8 @@ class Action:
     half_on_save: bool = False
     range_ft: int = 5
     resource_id: str = ""
+    section: str = "actions"  # actions, bonus, reactions, legendary
+    recharge: str = ""
     description: str = ""
 
     @classmethod
@@ -64,6 +66,21 @@ class Combatant:
     initiative_bonus: int = 0
     proficiency: int = 2
     stats: dict[str, int] = field(default_factory=lambda: {key: 10 for key in ABILITIES})
+    saves: dict[str, int] = field(default_factory=dict)
+    skills: dict[str, int] = field(default_factory=dict)
+    creature_size: str = ""
+    creature_type: str = ""
+    alignment: str = ""
+    challenge_rating: str = ""
+    resistances: list[str] = field(default_factory=list)
+    vulnerabilities: list[str] = field(default_factory=list)
+    immunities: list[str] = field(default_factory=list)
+    condition_immunities: list[str] = field(default_factory=list)
+    senses: str = ""
+    languages: str = ""
+    traits: list[str] = field(default_factory=list)
+    reactions: list[str] = field(default_factory=list)
+    legendary_actions: list[str] = field(default_factory=list)
     conditions: list[str] = field(default_factory=list)
     actions: list[Action] = field(default_factory=list)
     resources: list[Resource] = field(default_factory=list)
@@ -87,7 +104,10 @@ class Combatant:
         self.armor_class = max(0, int(self.armor_class))
         self.speed = max(0, int(self.speed))
         self.stats = {key: int(self.stats.get(key, 10)) for key in ABILITIES}
-        self.conditions = [str(x) for x in self.conditions]
+        self.saves = {str(key): int(value) for key, value in self.saves.items()}
+        self.skills = {str(key): int(value) for key, value in self.skills.items()}
+        for attr in ("resistances", "vulnerabilities", "immunities", "condition_immunities", "traits", "reactions", "legendary_actions", "conditions"):
+            setattr(self, attr, [str(x) for x in getattr(self, attr)])
         self.actions = [x if isinstance(x, Action) else Action.from_dict(x) for x in self.actions]
         self.resources = [x if isinstance(x, Resource) else Resource.from_dict(x) for x in self.resources]
 
@@ -129,7 +149,7 @@ class BattleState:
 @dataclass
 class Campaign:
     schema: str = "dragon-saga-python"
-    version: str = "3.2.0"
+    version: str = "4.0.0"
     title: str = "Драконья Сага"
     edition: str = "2024"
     role: str = "gm"

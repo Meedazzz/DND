@@ -140,6 +140,16 @@ class BattleEngine:
         flags["bonus"] = True
         flags["reaction"] = True
         flags.pop("charge_advantage", None)
+        for action in actor.actions:
+            key = f"recharge:{action.id}"
+            if action.recharge and flags.get(key) is False:
+                match = re.search(r"(\d)", action.recharge)
+                threshold = int(match.group(1)) if match else 6
+                rolled = self.randint(1, 6)
+                if rolled >= threshold:
+                    flags[key] = True; self.log(f"Перезарядка · {actor.name}: {action.name} ({rolled}) готово")
+                else:
+                    self.log(f"Перезарядка · {actor.name}: {action.name} ({rolled}) не готово")
         self.log(f"Ход: {actor.name} · раунд {battle.round_number}")
 
     def move(self, actor_id: str, destination: str, mode: str = "normal") -> None:
@@ -204,12 +214,15 @@ class BattleEngine:
         action = next((x for x in actor.actions if x.id == action_id), None)
         if not action:
             raise RuleError("Действие не найдено")
-        if action.kind in {"attack", "save"} and actor.side == target.side:
+        if action.kind in {"attack", "save", "damage"} and actor.side == target.side:
             raise RuleError("Для этого действия выберите противника")
         if action.kind == "heal" and actor.side != target.side:
             raise RuleError("Лечение требует союзную цель")
-        if consume_action and not self._flag(actor.id).get("action", True):
-            raise RuleError("Действие уже потрачено")
+        economy = "bonus" if action.section == "bonus" else "reaction" if action.section == "reactions" else "action"
+        if consume_action and self.campaign.battle.active and not self._flag(actor.id).get(economy, True):
+            raise RuleError({"bonus": "Бонусное действие уже потрачено", "reaction": "Реакция уже потрачена"}.get(economy, "Действие уже потрачено"))
+        if action.recharge and self._flag(actor.id).get(f"recharge:{action.id}", True) is False:
+            raise RuleError(f"«{action.name}» ещё не перезарядилось")
         actor_zone, target_zone = self.zone(actor.id), self.zone(target.id)
         if actor_zone not in ZONES or target_zone not in ZONES:
             raise RuleError("Действие требует цель на сцене")
@@ -242,7 +255,7 @@ class BattleEngine:
                 if natural == 20:
                     extra = self.roll(re.sub(r"([+-]\d+)$", "", action.damage)).total
                     damage += extra
-                self._apply_damage(target, damage)
+                damage = self._apply_damage(target, damage, action.damage_type)
                 detail = f"{label} · {actor.name} → {target.name}: {roll_text} {action.attack_bonus or 0:+d} = {total} против КД {target_ac}; урон {damage}"
             else:
                 detail = f"{label} · {actor.name} → {target.name}: {roll_text} {action.attack_bonus or 0:+d} = {total} против КД {target_ac}; промах"
@@ -252,8 +265,12 @@ class BattleEngine:
             rolled_damage = self.roll(action.damage).total
             damage = rolled_damage if hit else rolled_damage // 2 if action.half_on_save else 0
             if damage:
-                self._apply_damage(target, damage)
+                damage = self._apply_damage(target, damage, action.damage_type)
             detail = f"Спасбросок · {target.name}: {dice[0]} = {total} против Сл {action.save_dc}; {'неудача' if hit else 'успех'}; урон {damage}"
+        elif action.kind == "damage":
+            rolled_damage = self.roll(action.damage).total
+            damage = self._apply_damage(target, rolled_damage, action.damage_type)
+            detail = f"Урон · {actor.name} → {target.name}: {action.damage} = {damage}"
         elif action.kind == "heal":
             amount = self.roll(action.damage).total
             before = target.hp
@@ -263,8 +280,10 @@ class BattleEngine:
         else:
             detail = f"{actor.name}: {action.name}"
 
-        if consume_action:
-            self._flag(actor.id)["action"] = False
+        if consume_action and self.campaign.battle.active:
+            self._flag(actor.id)[economy] = False
+        if action.recharge:
+            self._flag(actor.id)[f"recharge:{action.id}"] = False
         if resource:
             resource.current -= 1
         self.log(detail)
@@ -334,12 +353,25 @@ class BattleEngine:
         self.log(detail)
         return ActionResult("Анализ подготовки", detail, success)
 
-    def _apply_damage(self, target: Combatant, damage: int) -> None:
-        absorbed = min(target.temp_hp, max(0, damage))
+    def _apply_damage(self, target: Combatant, damage: int, damage_type: str = "") -> int:
+        final = max(0, damage)
+        kind = damage_type.strip().lower()
+        if kind:
+            immune = any(kind in entry.lower() for entry in target.immunities)
+            resistant = any(kind in entry.lower() for entry in target.resistances)
+            vulnerable = any(kind in entry.lower() for entry in target.vulnerabilities)
+            if immune:
+                final = 0
+            elif resistant and not vulnerable:
+                final //= 2
+            elif vulnerable and not resistant:
+                final *= 2
+        absorbed = min(target.temp_hp, final)
         target.temp_hp -= absorbed
-        target.hp = max(0, target.hp - max(0, damage - absorbed))
+        target.hp = max(0, target.hp - max(0, final - absorbed))
         if target.hp == 0 and "Без сознания" not in target.conditions:
             target.conditions.append("Без сознания")
+        return final
 
     def _flag(self, actor_id: str) -> dict:
         return self.campaign.battle.flags.setdefault(actor_id, {})

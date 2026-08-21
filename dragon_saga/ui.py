@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import Qt, QTimer, Signal, QSize, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
@@ -27,35 +27,52 @@ from .storage import DEFAULT_SAVE, load_campaign, save_campaign
 APP_ICON_SVG = b'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#172023"/><path d="M95 377L190 104l66 116 66-116 95 273-98-82-63 113-63-113z" fill="#758b7e" stroke="#d2ad6d" stroke-width="18" stroke-linejoin="round"/><circle cx="256" cy="260" r="30" fill="#d2ad6d"/></svg>'''
 
 APP_STYLE = """
-* { font-family: "Segoe UI", "Noto Sans", sans-serif; font-size: 13px; color: #d9dedc; }
-QMainWindow, QWidget#root { background: #151b1d; }
-QFrame#sidebar { background: #101617; border-right: 1px solid #344143; }
-QLabel#brand { font-family: Georgia; font-size: 23px; font-weight: 700; color: #e1c18b; padding: 12px 4px; }
-QLabel#muted, QLabel.muted { color: #91a0a0; }
-QPushButton { background: #273234; border: 1px solid #455355; border-radius: 7px; padding: 8px 12px; color: #e2e7e5; }
-QPushButton:hover { background: #344245; border-color: #71817e; }
-QPushButton:pressed { background: #1d2729; }
-QPushButton#primary { background: #61786c; border-color: #81988c; color: white; font-weight: 700; }
-QPushButton#danger { background: #65484a; border-color: #8b6264; }
-QPushButton#nav { text-align: left; border: none; background: transparent; padding: 12px; font-size: 14px; }
-QPushButton#nav:checked { background: #2b3738; color: #efcf98; border-left: 3px solid #c9a365; }
-QFrame#panel { background: #20292b; border: 1px solid #3c494b; border-radius: 10px; }
-QFrame#battlefield { background: transparent; border: 1px solid #3c494b; border-radius: 12px; }
-QFrame#zone { background: rgba(20,29,31,148); border: 1px solid rgba(91,108,108,210); border-radius: 12px; }
-QFrame#zone[front="true"] { background: rgba(31,42,42,164); border-color: #718076; }
-QFrame#actor { background: rgba(27,35,37,225); border: 1px solid #536164; border-radius: 9px; }
-QFrame#actor[active="true"] { border: 2px solid #d2ad6d; background: #2a3433; }
-QFrame#actor[target="true"] { border: 2px solid #b98176; }
-QLabel#title { font-family: Georgia; font-size: 24px; font-weight: 700; color: #e4cfaa; }
-QLabel#section { font-family: Georgia; font-size: 17px; font-weight: 700; color: #d6c39f; }
-QLabel#banner { background: #75624a; color: #fff5dd; border-radius: 6px; padding: 8px; font-weight: 700; }
-QProgressBar { background: #111718; border: none; border-radius: 4px; height: 8px; text-align: center; }
-QProgressBar::chunk { background: #718c79; border-radius: 4px; }
-QLineEdit, QTextEdit, QComboBox, QSpinBox, QListWidget { background: #141b1d; border: 1px solid #465355; border-radius: 6px; padding: 7px; selection-background-color: #6d785f; }
+* { font-family: "Segoe UI", "Noto Sans", sans-serif; font-size: 12px; color: #ded5cb; }
+QMainWindow, QWidget#root, QStackedWidget { background: #0b090a; }
+QFrame#sidebar { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #171314,stop:1 #0e0c0d); border-right: 1px solid #342b2b; }
+QLabel#brand { font-family: Georgia; font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #eee0d0; padding: 18px 8px 2px; }
+QLabel#brandAccent { color: #bc493b; font-size: 10px; font-weight: 700; letter-spacing: 4px; padding: 0 9px 18px; border-bottom: 1px solid #342b2b; }
+QLabel#muted, QLabel.muted { color: #807874; }
+QLabel#eyebrow { color: #c64f40; font-size: 9px; font-weight: 700; letter-spacing: 3px; }
+QLabel#title { font-family: Georgia; font-size: 27px; font-weight: 700; color: #eee5d9; }
+QLabel#section { font-family: Georgia; font-size: 16px; font-weight: 700; color: #decfc0; }
+QFrame#topbar { background: #110f10; border-bottom: 1px solid #342d2d; }
+QPushButton { background: #181516; border: 1px solid #403536; border-radius: 0px; padding: 9px 13px; color: #ada39c; }
+QPushButton:hover { background: #251d1e; border-color: #705047; color: #f0e4da; }
+QPushButton:pressed { background: #100e0f; }
+QPushButton:disabled { color: #514a47; border-color: #2a2526; background: #121011; }
+QPushButton#primary { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #ad493c,stop:1 #742921); border-color: #c25a48; color: #fff2e9; font-weight: 700; }
+QPushButton#primary:hover { background: #b84e40; }
+QPushButton#danger { background: #3a1d1c; border-color: #6f3530; color: #d79d92; }
+QPushButton#nav { text-align: left; border: 1px solid transparent; background: transparent; padding: 13px 12px; font-family: Georgia; font-size: 15px; color: #918681; }
+QPushButton#nav:hover { background: #181415; color: #e9ddd3; }
+QPushButton#nav:checked { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #39201e,stop:1 #151112); color: #f2e7dd; border-left: 3px solid #c34d3e; border-top-color: #3f2a29; border-bottom-color: #3f2a29; }
+QFrame#panel { background: #151213; border: 1px solid #3a3030; }
+QFrame#battlefield { background: #100c0e; border-top: 1px solid #4a3432; border-bottom: 1px solid #4a3432; }
+QFrame#zone { background: transparent; border: none; }
+QFrame#zone[front="true"] { background: rgba(44,26,26,40); }
+QFrame#actor { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 rgba(36,29,29,230),stop:1 rgba(12,10,11,245)); border: 1px solid #57443e; }
+QFrame#actor[active="true"] { border: 2px solid #b9834f; background: #2b2020; }
+QFrame#actor[target="true"] { border: 2px solid #c44c3d; background: #321b1b; }
+QFrame#stageConsole { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #1c1617,stop:1 #0c0a0b); border-top: 1px solid #5a3834; }
+QFrame#abilityCard, QPushButton#abilityCard { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #2a2020,stop:1 #141011); border: 1px solid #59413b; color:#eadfd6; font-family:Georgia; font-weight:700; text-align:left; padding:9px; }
+QFrame#abilityCard:hover, QPushButton#abilityCard:hover { border-color: #a84c3e; background: #38201e; }
+QLabel#banner { background: #351b1a; color: #f3d5c8; border: 1px solid #704038; padding: 8px 14px; font-weight: 700; }
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QListWidget { background: #0d0b0c; border: 1px solid #443839; border-radius: 0px; padding: 8px; selection-background-color: #74372e; color: #e2d9d0; }
+QTextEdit#sourceEditor { font-family: "Consolas", "DejaVu Sans Mono", monospace; font-size: 12px; background: #0a090a; border: 1px solid #55413e; padding: 14px; }
+QTextEdit#preview { background: #151112; border: 1px solid #453535; padding: 12px; }
 QScrollArea { border: none; background: transparent; }
-QMenu { background: #20292b; border: 1px solid #4d5b5d; }
-QMenu::item:selected { background: #465657; }
-QToolTip { background: #101617; color: #e8ddca; border: 1px solid #647172; }
+QSplitter::handle { background: #2e2728; width: 1px; }
+QListWidget::item { padding: 10px; border-bottom: 1px solid #30292a; }
+QListWidget::item:selected { background: #38211f; color: #f2dfd4; border-left: 2px solid #bd4a3c; }
+QMenu { background: #171415; border: 1px solid #57423e; padding: 4px; }
+QMenu::item { padding: 8px 20px; }
+QMenu::item:selected { background: #5f2d27; }
+QDialog { background: #121011; }
+QDialogButtonBox QPushButton { min-width: 100px; }
+QToolTip { background: #0b090a; color: #eadcd1; border: 1px solid #654840; }
+QScrollBar:vertical { background: #0d0b0c; width: 9px; }
+QScrollBar::handle:vertical { background: #3b3031; min-height: 24px; }
 """
 
 
@@ -65,74 +82,148 @@ class Portrait(QWidget):
     def __init__(self, combatant: Combatant, parent: QWidget | None = None):
         super().__init__(parent)
         self.combatant = combatant
-        self.setMinimumHeight(150)
+        self.setMinimumHeight(175)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def mousePressEvent(self, event):  # type: ignore[override]
-        self.clicked.emit()
-        super().mousePressEvent(event)
+        self.clicked.emit(); super().mousePressEvent(event)
 
     def paintEvent(self, event):  # type: ignore[override]
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = self.rect().adjusted(4, 4, -4, -4)
-        gradient_top = QColor("#334247" if self.combatant.side == "hero" else "#49383a")
-        painter.fillRect(rect, QColor("#182023"))
-        painter.fillRect(rect.adjusted(0, rect.height() // 2, 0, 0), gradient_top.darker(165))
+        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(3, 3, -3, -3)
+        # A narrow pointed arch and red/blue haze recreate the original theatrical portrait slots.
+        background = QLinearGradient(0, rect.top(), 0, rect.bottom())
+        if self.combatant.side == "hero":
+            background.setColorAt(0, QColor("#29272b")); background.setColorAt(.55, QColor("#17171b")); background.setColorAt(1, QColor("#0a0a0c"))
+        else:
+            background.setColorAt(0, QColor("#38201f")); background.setColorAt(.55, QColor("#1d1112")); background.setColorAt(1, QColor("#0b090a"))
+        painter.fillRect(rect, background)
+        glow = QRadialGradient(rect.center().x(), int(rect.height() * .70), max(30, rect.width() * .75))
+        glow.setColorAt(0, QColor(170, 64, 49, 68) if self.combatant.side != "hero" else QColor(110, 99, 91, 48)); glow.setColorAt(1, QColor(0, 0, 0, 0))
+        painter.fillRect(rect, glow)
+        painter.setPen(QPen(QColor("#5c4841"), 1)); painter.drawLine(rect.left(), rect.bottom(), rect.left(), rect.top() + 30); painter.drawLine(rect.right(), rect.bottom(), rect.right(), rect.top() + 30)
+        arch = QPainterPath(); arch.moveTo(rect.left(), rect.top() + 30); arch.quadTo(rect.center().x(), rect.top() - 11, rect.right(), rect.top() + 30)
+        painter.setBrush(Qt.BrushStyle.NoBrush); painter.drawPath(arch)
         if self.combatant.image_path and Path(self.combatant.image_path).is_file():
             pixmap = QPixmap(self.combatant.image_path)
             if not pixmap.isNull():
                 scaled = pixmap.scaled(rect.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                 painter.drawPixmap(rect.center().x() - scaled.width() // 2, rect.bottom() - scaled.height(), scaled)
-                return
-        center_x = rect.center().x()
-        bottom = rect.bottom() - 8
-        scale = min(rect.width() / 120, rect.height() / 170) * self.combatant.model_scale / 100
-        body = QPainterPath()
-        body.moveTo(center_x, bottom - 112 * scale)
-        body.lineTo(center_x - 35 * scale, bottom - 24 * scale)
-        body.quadTo(center_x, bottom, center_x + 35 * scale, bottom - 24 * scale)
-        body.closeSubpath()
-        silhouette = QColor("#91a39d" if self.combatant.side == "hero" else "#a3817b")
-        painter.setBrush(silhouette.darker(165))
-        painter.setPen(QPen(silhouette, 2))
-        painter.drawPath(body)
-        painter.drawEllipse(int(center_x - 17 * scale), int(bottom - 145 * scale), int(34 * scale), int(34 * scale))
-        painter.setPen(QPen(QColor("#d7c18e"), max(1, int(3 * scale))))
-        painter.drawLine(int(center_x + 24 * scale), int(bottom - 95 * scale), int(center_x + 45 * scale), int(bottom - 145 * scale))
-        initials = "".join(x[0] for x in self.combatant.name.split()[:2]).upper()
-        painter.setPen(QColor("#f0dfbd"))
-        painter.setFont(QFont("Georgia", max(9, int(12 * scale)), QFont.Weight.Bold))
-        painter.drawText(rect.adjusted(0, 0, 0, -5), Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom, initials)
+        else:
+            center_x = rect.center().x(); bottom = rect.bottom() - 3
+            scale = min(rect.width() / 105, rect.height() / 175) * self.combatant.model_scale / 100
+            silhouette = QColor("#5f5b5b" if self.combatant.side == "hero" else "#6d4b49")
+            # Floor shadow.
+            painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(0, 0, 0, 145)); painter.drawEllipse(int(center_x - 38*scale), int(bottom - 9*scale), int(76*scale), int(15*scale))
+            body = QPainterPath(); body.moveTo(center_x, bottom - 119 * scale); body.quadTo(center_x - 27*scale, bottom - 98*scale, center_x - 38*scale, bottom - 18*scale); body.quadTo(center_x, bottom + 2*scale, center_x + 38*scale, bottom - 18*scale); body.quadTo(center_x + 26*scale, bottom - 98*scale, center_x, bottom - 119*scale); body.closeSubpath()
+            painter.setBrush(silhouette.darker(145)); painter.setPen(QPen(silhouette.lighter(112), max(1, int(scale)))); painter.drawPath(body)
+            painter.drawEllipse(int(center_x - 15*scale), int(bottom - 149*scale), int(30*scale), int(34*scale))
+            # Weapon and optional boss horns are deliberately abstract rather than borrowed artwork.
+            painter.setPen(QPen(QColor("#8e7b66"), max(1, int(2*scale)))); painter.drawLine(int(center_x + 25*scale), int(bottom - 91*scale), int(center_x + 47*scale), int(bottom - 158*scale))
+            if self.combatant.is_boss:
+                painter.setPen(QPen(QColor("#8f574c"), max(1, int(2*scale)))); painter.drawLine(int(center_x - 9*scale), int(bottom - 145*scale), int(center_x - 22*scale), int(bottom - 169*scale)); painter.drawLine(int(center_x + 9*scale), int(bottom - 145*scale), int(center_x + 22*scale), int(bottom - 169*scale))
+        painter.setBrush(Qt.BrushStyle.NoBrush); painter.setPen(QPen(QColor("#9e7a61"), 1)); painter.drawRect(rect)
         if self.combatant.model_path:
-            painter.setPen(QColor("#9fb5b0"))
-            painter.setFont(QFont("Segoe UI", 8))
-            painter.drawText(rect.adjusted(6, 6, -6, -6), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, "3D")
+            painter.setPen(QColor("#c5a170")); painter.setFont(QFont("Segoe UI", 8)); painter.drawText(rect.adjusted(5, 4, -5, -4), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, "3D")
+        painter.end()
 
 
 class ImportDialog(QDialog):
+    """Large, audit-first stat-block import — the primary creature workflow."""
     def __init__(self, side: str, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Быстрый импорт статблока")
-        self.resize(680, 580)
-        layout = QVBoxLayout(self)
-        hint = QLabel("Вставьте текст без переработки. Импортёр возьмёт только явно указанные КД, ОЗ, характеристики, действия и ресурсы 2/2; исходник сохранится полностью.")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-        self.side = QComboBox()
-        self.side.addItem("Герой", "hero")
-        self.side.addItem("Противник", "enemy")
-        self.side.setCurrentIndex(0 if side == "hero" else 1)
-        layout.addWidget(self.side)
-        self.text = QTextEdit()
-        self.text.setPlaceholderText("Имя\nКД 15\nОЗ 32\nСкорость 30 фт\nСИЛ 16 ЛОВ 12 ...\nУкус. +5 к атаке, дистанция 5 фт, попадание 1d8+3.")
-        layout.addWidget(self.text, 1)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Импортировать")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self.setWindowTitle("Новый участник · импорт полного статблока")
+        self.resize(1120, 720)
+        self._last_result = None
+        root = QVBoxLayout(self); root.setContentsMargins(18, 16, 18, 16); root.setSpacing(10)
+        eyebrow = QLabel("БЫСТРЫЙ СБОР ЛИСТА"); eyebrow.setObjectName("eyebrow"); root.addWidget(eyebrow)
+        heading = QHBoxLayout()
+        title_block = QVBoxLayout(); title = QLabel("Вставьте описание целиком"); title.setObjectName("title"); title_block.addWidget(title)
+        hint = QLabel("Русский или English · можно одним непрерывным абзацем. Исходник сохраняется дословно; неуказанные данные не выдумываются.")
+        hint.setObjectName("muted"); hint.setWordWrap(True); title_block.addWidget(hint); heading.addLayout(title_block, 1)
+        self.side = QComboBox(); self.side.setMinimumWidth(190)
+        self.side.addItem("Герой", "hero"); self.side.addItem("Моб", "enemy"); self.side.addItem("Элита", "enemy"); self.side.addItem("Босс", "enemy")
+        self.side.setCurrentIndex(0 if side == "hero" else (3 if side == "boss" else 1))
+        self.side.currentIndexChanged.connect(self._schedule_preview)
+        heading.addWidget(QLabel("РОЛЬ")); heading.addWidget(self.side); root.addLayout(heading)
+
+        split = QSplitter(); split.setChildrenCollapsible(False)
+        source_panel = QFrame(); source_panel.setObjectName("panel"); source_layout = QVBoxLayout(source_panel)
+        source_title = QLabel("01  ИСХОДНЫЙ ТЕКСТ"); source_title.setObjectName("section"); source_layout.addWidget(source_title)
+        self.text = QTextEdit(); self.text.setObjectName("sourceEditor")
+        self.text.setPlaceholderText("Вставьте сюда полный статблок из книги или свой текст: имя, размер/тип, КД, ОЗ, скорость, характеристики, защиты, ресурсы, действия, реакции и легендарные действия…")
+        self.text.textChanged.connect(self._schedule_preview); source_layout.addWidget(self.text, 1)
+        preservation = QLabel("Знак дословности  ✓  Текст будет сохранён без нормализации и доступен в листе.")
+        preservation.setObjectName("muted"); preservation.setWordWrap(True); source_layout.addWidget(preservation)
+        split.addWidget(source_panel)
+
+        preview_panel = QFrame(); preview_panel.setObjectName("panel"); preview_layout = QVBoxLayout(preview_panel)
+        preview_header = QHBoxLayout(); preview_title = QLabel("02  ПРЕДПРОСМОТР И АУДИТ"); preview_title.setObjectName("section"); preview_header.addWidget(preview_title, 1)
+        parse_button = QPushButton("Разобрать текст"); parse_button.clicked.connect(self.update_preview); preview_header.addWidget(parse_button)
+        preview_layout.addLayout(preview_header)
+        self.preview = QTextEdit(); self.preview.setObjectName("preview"); self.preview.setReadOnly(True)
+        self.preview.setHtml("<h3>Предпросмотр появится здесь</h3><p>Распознанные поля будут отделены от допущений и предупреждений.</p>")
+        preview_layout.addWidget(self.preview, 1); split.addWidget(preview_panel)
+        split.setSizes([550, 550]); root.addWidget(split, 1)
+
+        bottom = QHBoxLayout()
+        audit_note = QLabel("Импорт создаёт редактируемый боевой лист. Любую ошибку можно исправить после добавления.")
+        audit_note.setObjectName("muted"); audit_note.setWordWrap(True); bottom.addWidget(audit_note, 1)
+        cancel = QPushButton("Отмена"); cancel.clicked.connect(self.reject); bottom.addWidget(cancel)
+        accept = QPushButton("Добавить на сцену"); accept.setObjectName("primary"); accept.clicked.connect(self._accept_if_valid); bottom.addWidget(accept)
+        root.addLayout(bottom)
+        self._timer = QTimer(self); self._timer.setSingleShot(True); self._timer.setInterval(450); self._timer.timeout.connect(self.update_preview)
+
+    @property
+    def boss_selected(self) -> bool:
+        return self.side.currentIndex() == 3
+
+    def _schedule_preview(self) -> None:
+        self._timer.start()
+
+    def _accept_if_valid(self) -> None:
+        self.update_preview()
+        if self._last_result is not None:
+            self.accept()
+
+    def update_preview(self) -> None:
+        import html
+        source = self.text.toPlainText()
+        if not source.strip():
+            self._last_result = None
+            self.preview.setHtml("<h3>Вставьте статблок</h3><p>Поддерживается непрерывный русский и английский текст.</p>")
+            return
+        try:
+            result = parse_stat_block(source, self.side.currentData())
+        except ValueError as exc:
+            self._last_result = None
+            self.preview.setHtml(f"<h3 style='color:#cf6657'>Не удалось разобрать</h3><p>{html.escape(str(exc))}</p>")
+            return
+        self._last_result = result; c = result.combatant
+        if self.boss_selected: c.is_boss = True
+        role = self.side.currentText().upper()
+        ability = " &nbsp; ".join(f"<b>{key.upper()}</b> {c.stats[key]}" for key in ABILITIES)
+        resource_lines = "".join(f"<li>{html.escape(r.name)}: <b>{r.current}/{r.maximum}</b> · {html.escape(r.recovery)}</li>" for r in c.resources) or "<li>Не найдены</li>"
+        action_lines = "".join(
+            f"<li><b>{html.escape(a.name)}</b> · {html.escape(a.section)} · {html.escape(a.kind)} · "
+            f"{html.escape(a.damage)}{(' · recharge '+html.escape(a.recharge)) if a.recharge else ''}</li>" for a in c.actions
+        ) or "<li>Не найдены — сохранённый исходник позволит добавить их вручную</li>"
+        found = " · ".join(html.escape(x) for x in result.found) or "нет"
+        warnings = "".join(f"<li>{html.escape(x)}</li>" for x in result.warnings) or "<li>Нет предупреждений</li>"
+        identity = " · ".join(x for x in (c.creature_size, c.creature_type, c.alignment) if x)
+        self.preview.setHtml(f"""
+        <div style='color:#d9cec4'>
+          <p style='color:#b94d3f;letter-spacing:2px'><b>{role}</b></p>
+          <h1 style='font-family:Georgia;color:#f0e4d8'>{html.escape(c.name)}</h1>
+          <p style='color:#91847f'>{html.escape(identity or c.class_name or 'тип не указан')}</p>
+          <table cellspacing='8'><tr><td><b>КД</b><br>{c.armor_class}</td><td><b>ОЗ</b><br>{c.hp}/{c.max_hp}</td><td><b>Скорость</b><br>{c.speed} фт</td><td><b>CR</b><br>{html.escape(c.challenge_rating or '—')}</td></tr></table>
+          <p>{ability}</p><hr>
+          <h3>Ресурсы</h3><ul>{resource_lines}</ul>
+          <h3>Боевые действия</h3><ul>{action_lines}</ul>
+          <h3 style='color:#c5a16f'>Распознано</h3><p>{found}</p>
+          <h3 style='color:#c56c5e'>Проверить</h3><ul>{warnings}</ul>
+        </div>""")
 
 
 class CharacterDialog(QDialog):
@@ -194,15 +285,21 @@ class ActionDialog(QDialog):
         self.actor = actor
         self.action = action or Action(name="Новое действие")
         self.setWindowTitle("Действие персонажа")
-        self.resize(520, 520)
+        self.resize(560, 690)
         root = QVBoxLayout(self); form = QFormLayout()
         self.name = QLineEdit(self.action.name)
         self.kind = QComboBox()
-        for label, value in (("Атака против КД", "attack"), ("Спасбросок", "save"), ("Лечение", "heal"), ("Особое действие", "utility")):
+        for label, value in (("Атака против КД", "attack"), ("Спасбросок", "save"), ("Прямой урон", "damage"), ("Лечение", "heal"), ("Особое действие", "utility")):
             self.kind.addItem(label, value)
         self.kind.setCurrentIndex(max(0, self.kind.findData(self.action.kind)))
         self.attack = QSpinBox(); self.attack.setRange(-20, 40); self.attack.setValue(self.action.attack_bonus or 0); self.attack.setPrefix("+")
         self.damage = QLineEdit(self.action.damage)
+        self.damage_type = QLineEdit(self.action.damage_type)
+        self.section = QComboBox()
+        for label, value in (("Действие", "actions"), ("Бонусное действие", "bonus"), ("Реакция", "reactions"), ("Легендарное действие", "legendary")):
+            self.section.addItem(label, value)
+        self.section.setCurrentIndex(max(0, self.section.findData(self.action.section)))
+        self.recharge = QLineEdit(self.action.recharge); self.recharge.setPlaceholderText("Например: 5-6")
         self.range = QSpinBox(); self.range.setRange(5, 1000); self.range.setSingleStep(5); self.range.setValue(self.action.range_ft); self.range.setSuffix(" фт")
         self.save_ability = QComboBox()
         for key, label in (("str", "СИЛ"), ("dex", "ЛОВ"), ("con", "ТЕЛ"), ("int", "ИНТ"), ("wis", "МДР"), ("cha", "ХАР")):
@@ -215,7 +312,7 @@ class ActionDialog(QDialog):
             self.resource.addItem(f"{item.name} · {item.current}/{item.maximum}", item.id)
         self.resource.setCurrentIndex(max(0, self.resource.findData(self.action.resource_id)))
         self.description = QTextEdit(self.action.description); self.description.setMaximumHeight(100)
-        for label, widget in (("Название", self.name), ("Тип", self.kind), ("Бонус атаки", self.attack), ("Урон / лечение", self.damage), ("Дистанция", self.range), ("Характеристика спасброска", self.save_ability), ("Сл", self.save_dc), ("При успехе", self.half), ("Ресурс", self.resource), ("Описание", self.description)):
+        for label, widget in (("Название", self.name), ("Тип", self.kind), ("Раздел / экономика", self.section), ("Бонус атаки", self.attack), ("Урон / лечение", self.damage), ("Тип урона", self.damage_type), ("Перезарядка", self.recharge), ("Дистанция", self.range), ("Характеристика спасброска", self.save_ability), ("Сл", self.save_dc), ("При успехе", self.half), ("Ресурс", self.resource), ("Описание", self.description)):
             form.addRow(label, widget)
         root.addLayout(form)
         hint = QLabel("Формулы: 1d8+3, 2d6, 3d10-2. Для особого действия формула не бросается автоматически.")
@@ -227,6 +324,7 @@ class ActionDialog(QDialog):
         action = self.action
         action.name = self.name.text().strip() or "Действие"
         action.kind = self.kind.currentData(); action.damage = self.damage.text().strip() or "0"
+        action.damage_type = self.damage_type.text().strip(); action.section = self.section.currentData(); action.recharge = self.recharge.text().strip()
         action.range_ft = self.range.value(); action.resource_id = self.resource.currentData() or ""
         action.description = self.description.toPlainText()
         action.attack_bonus = self.attack.value() if action.kind == "attack" else None
@@ -257,34 +355,40 @@ class ResourceDialog(QDialog):
 
 
 class BattleStage(QFrame):
-    """Original procedural northern stage: no external reference image is required."""
+    """Procedural gothic battle stage; no bundled or external artwork is required."""
     def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent); self.setObjectName("battlefield")
+        super().__init__(parent); self.setObjectName("battlefield"); self.setMinimumHeight(390)
 
     def paintEvent(self, event):  # type: ignore[override]
+        super().paintEvent(event)
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(1, 1, -1, -1)
-        painter.fillRect(rect, QColor("#182225"))
-        # Mist bands and a cold ground line give the cards one continuous side-view stage.
-        painter.fillRect(rect.adjusted(0, int(rect.height() * .18), 0, -int(rect.height() * .54)), QColor("#253336"))
-        painter.fillRect(rect.adjusted(0, int(rect.height() * .65), 0, 0), QColor("#202b2c"))
-        painter.setPen(QPen(QColor(141, 157, 151, 32), 2))
-        for offset in (0.34, 0.47, 0.58):
-            y = rect.top() + int(rect.height() * offset)
-            painter.drawLine(rect.left() + 12, y, rect.right() - 12, y)
-        # Original abstract pines; intentionally not based on uploaded artwork.
+        sky = QLinearGradient(0, rect.top(), 0, rect.bottom())
+        sky.setColorAt(0, QColor("#080708")); sky.setColorAt(.42, QColor("#1a1012")); sky.setColorAt(.72, QColor("#231517")); sky.setColorAt(1, QColor("#080708")); painter.fillRect(rect, sky)
+        # A dim blood-red light sits behind the opposing front lines.
+        glow = QRadialGradient(rect.center().x(), int(rect.height() * .54), rect.width() * .34)
+        glow.setColorAt(0, QColor(156, 48, 38, 62)); glow.setColorAt(.55, QColor(93, 30, 29, 28)); glow.setColorAt(1, QColor(0, 0, 0, 0)); painter.fillRect(rect, glow)
+        horizon = rect.top() + int(rect.height() * .62)
+        # Ruined pillars, arches, and hanging iron lines create an original gothic set.
         painter.setPen(Qt.PenStyle.NoPen)
-        for index in range(13):
-            x = rect.left() + int((index + .35) * rect.width() / 13)
-            height = 70 + (index * 37) % 95
-            base = rect.top() + int(rect.height() * .65)
-            color = QColor("#344846" if index % 2 else "#405451")
-            painter.setBrush(color)
-            path = QPainterPath(); path.moveTo(x, base - height); path.lineTo(x - height * .24, base); path.lineTo(x + height * .24, base); path.closeSubpath(); painter.drawPath(path)
-        painter.setPen(QPen(QColor("#596665"), 1))
-        painter.drawRoundedRect(rect, 11, 11)
-        painter.end()
-        super().paintEvent(event)
+        for x in (rect.left() + int(rect.width()*.06), rect.left() + int(rect.width()*.19), rect.left() + int(rect.width()*.81), rect.left() + int(rect.width()*.94)):
+            width = max(10, int(rect.width()*.025)); painter.setBrush(QColor(31, 25, 26, 225)); painter.drawRect(x-width//2, rect.top()+34, width, horizon-rect.top()-18)
+            painter.setBrush(QColor(54, 39, 39, 190)); painter.drawRect(x-width, rect.top()+29, width*2, 8)
+        painter.setPen(QPen(QColor(72, 50, 49, 125), max(2, int(rect.width()*.004))))
+        for left, right in ((.06,.19),(.81,.94)):
+            path=QPainterPath(); path.moveTo(rect.left()+int(rect.width()*left), rect.top()+115); path.quadTo(rect.left()+int(rect.width()*(left+right)/2), rect.top()+36, rect.left()+int(rect.width()*right), rect.top()+115); painter.drawPath(path)
+        painter.setPen(QPen(QColor(70, 47, 45, 90), 1))
+        for index in range(9):
+            x=rect.left()+int((index+.5)*rect.width()/9); painter.drawLine(x, rect.top(), x, rect.top()+20+(index%3)*13)
+        # Stone floor with perspective guides and a central confrontation seam.
+        floor = QLinearGradient(0, horizon, 0, rect.bottom()); floor.setColorAt(0, QColor("#241a1b")); floor.setColorAt(1, QColor("#0b090a")); painter.fillRect(rect.left(), horizon, rect.width(), rect.bottom()-horizon, floor)
+        painter.setPen(QPen(QColor(107, 73, 65, 56), 1))
+        for index in range(1, 8):
+            y=horizon+int((rect.bottom()-horizon)*(index/8)**1.6); painter.drawLine(rect.left(), y, rect.right(), y)
+        for index in range(-5,6):
+            painter.drawLine(rect.center().x(), horizon, rect.center().x()+index*int(rect.width()*.12), rect.bottom())
+        painter.setPen(QPen(QColor(177, 73, 57, 100), 2)); painter.drawLine(rect.center().x(), rect.top()+60, rect.center().x(), rect.bottom()-8)
+        painter.setPen(QPen(QColor("#513a36"), 1)); painter.drawRect(rect); painter.end()
 
 
 class DiceSidebar(QFrame):
@@ -327,97 +431,115 @@ class DiceSidebar(QFrame):
 
 class ActorCard(QFrame):
     def __init__(self, window: "MainWindow", actor: Combatant):
-        super().__init__()
-        self.window, self.actor = window, actor
-        self.setObjectName("actor")
-        active = window.engine.active_actor()
-        self.setProperty("active", bool(active and active.id == actor.id))
-        self.setProperty("target", window.campaign.battle.target_id == actor.id)
-        root = QVBoxLayout(self); root.setContentsMargins(7, 7, 7, 7); root.setSpacing(5)
+        super().__init__(); self.window, self.actor = window, actor
+        self.setObjectName("actor"); self.setMinimumWidth(118); self.setMaximumWidth(205)
+        active = window.engine.active_actor(); self.setProperty("active", bool(active and active.id == actor.id)); self.setProperty("target", window.campaign.battle.target_id == actor.id)
+        root = QVBoxLayout(self); root.setContentsMargins(5, 5, 5, 6); root.setSpacing(4)
+        marker = QLabel(("◆ БОСС" if actor.is_boss else ("ГЕРОЙ" if actor.side == "hero" else "ПРОТИВНИК")))
+        marker.setAlignment(Qt.AlignmentFlag.AlignCenter); marker.setStyleSheet("color:#b87562;font-size:8px;font-weight:700;letter-spacing:2px")
+        root.addWidget(marker)
         portrait = Portrait(actor); portrait.clicked.connect(lambda: window.select_actor(actor.id)); root.addWidget(portrait, 1)
-        name = QLabel(actor.name); name.setAlignment(Qt.AlignmentFlag.AlignCenter); name.setWordWrap(True); name.setStyleSheet("font-weight:700;color:#ead8b7")
+        # Zero-width break opportunities keep long Russian/German-style names readable on 1120 px desktops.
+        display_name = " ".join("\u200b".join(word[index:index + 9] for index in range(0, len(word), 9)) for word in actor.name.upper().split())
+        name = QLabel(display_name); name.setAlignment(Qt.AlignmentFlag.AlignCenter); name.setWordWrap(True); name.setStyleSheet("font-family:Georgia;font-weight:700;color:#eee0d0;font-size:12px")
         root.addWidget(name)
-        hp = QLabel(f"ОЗ {actor.hp}/{actor.max_hp}  ·  КД {actor.armor_class}")
-        hp.setAlignment(Qt.AlignmentFlag.AlignCenter); root.addWidget(hp)
-        meter = QFrame(); meter.setFixedHeight(6); meter.setStyleSheet(f"background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #718c79,stop:{max(0,min(1,actor.hp/actor.max_hp)):.3f} #718c79,stop:{max(0,min(1,actor.hp/actor.max_hp)):.3f} #342f31,stop:1 #342f31);border-radius:3px")
+        hp = QLabel(f"{actor.hp} / {actor.max_hp} ОЗ     КД {actor.armor_class}"); hp.setAlignment(Qt.AlignmentFlag.AlignCenter); hp.setStyleSheet("font-size:10px;color:#b4a7a0"); root.addWidget(hp)
+        ratio = max(0, min(1, actor.hp / max(1, actor.max_hp)))
+        meter = QFrame(); meter.setFixedHeight(5); meter.setStyleSheet(f"background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #a53f32,stop:{ratio:.3f} #a53f32,stop:{ratio:.3f} #302526,stop:1 #302526);border:1px solid #1a1516")
         root.addWidget(meter)
         if actor.telegraph:
-            warning = QLabel(f"⚠ {actor.telegraph} · Сл {actor.telegraph_dc}"); warning.setWordWrap(True); warning.setStyleSheet("color:#e3bc7b;font-weight:700")
-            root.addWidget(warning)
+            warning = QLabel(f"⚠ {actor.telegraph} · Сл {actor.telegraph_dc}"); warning.setWordWrap(True); warning.setAlignment(Qt.AlignmentFlag.AlignCenter); warning.setStyleSheet("color:#d5a365;font-size:9px;font-weight:700"); root.addWidget(warning)
         if actor.conditions:
-            condition = QLabel(" · ".join(actor.conditions[:3])); condition.setWordWrap(True); condition.setStyleSheet("color:#aebcb8;font-size:11px")
-            root.addWidget(condition)
-        controls = QHBoxLayout(); controls.setSpacing(3)
-        for text, delta in (("−", -1), ("+", 1)):
-            button = QPushButton(text); button.setFixedSize(30, 28); button.setEnabled(window.can_control(actor)); button.clicked.connect(lambda _=False, d=delta: window.change_hp(actor.id, d)); controls.addWidget(button)
-        attack = QPushButton("Действие"); attack.setEnabled(window.can_control(actor)); attack.clicked.connect(lambda: window.use_primary_action(actor.id)); controls.addWidget(attack, 1)
-        more = QPushButton("⋯"); more.setFixedWidth(34); more.setEnabled(window.can_control(actor)); more.clicked.connect(lambda: window.actor_menu(actor, more)); controls.addWidget(more)
+            condition = QLabel(" · ".join(actor.conditions[:2])); condition.setAlignment(Qt.AlignmentFlag.AlignCenter); condition.setWordWrap(True); condition.setStyleSheet("color:#b86a5e;font-size:9px"); root.addWidget(condition)
+        controls = QHBoxLayout(); controls.setSpacing(2)
+        minus = QPushButton("−"); minus.setFixedSize(27, 25); minus.setStyleSheet("padding:1px;font-size:12px"); minus.setToolTip("Уменьшить ОЗ на 1"); minus.setEnabled(window.can_control(actor)); minus.clicked.connect(lambda: window.change_hp(actor.id, -1)); controls.addWidget(minus)
+        action = QPushButton("ХОД"); action.setStyleSheet("padding:1px 2px;font-size:9px;font-weight:700"); action.setToolTip("Выбрать и выполнить действие в один клик"); action.setEnabled(window.can_control(actor)); action.clicked.connect(lambda: window.use_primary_action(actor.id)); controls.addWidget(action, 1)
+        more = QPushButton("•••"); more.setFixedSize(29, 25); more.setStyleSheet("padding:1px;font-size:8px"); more.setEnabled(window.can_control(actor)); more.clicked.connect(lambda: window.actor_menu(actor, more)); controls.addWidget(more)
         root.addLayout(controls)
 
 
 class ZoneFrame(QFrame):
     def __init__(self, window: "MainWindow", zone: str, title: str, subtitle: str):
-        super().__init__(); self.zone = zone
-        self.setObjectName("zone"); self.setProperty("front", zone in ("A1", "A2"))
-        root = QVBoxLayout(self); root.setContentsMargins(8, 8, 8, 8)
-        label = QLabel(f"{zone} · {title}"); label.setAlignment(Qt.AlignmentFlag.AlignCenter); label.setStyleSheet("font-weight:700;color:#ddc89f")
+        super().__init__(); self.zone = zone; self.setObjectName("zone"); self.setProperty("front", zone in ("A1", "A2"))
+        root = QVBoxLayout(self); root.setContentsMargins(5, 6, 5, 8); root.setSpacing(4)
+        label = QLabel(f"{zone}  {title.upper()}"); label.setAlignment(Qt.AlignmentFlag.AlignCenter); label.setStyleSheet("font-family:Georgia;font-weight:700;color:#9b8880;font-size:10px;letter-spacing:1px")
         root.addWidget(label)
-        small = QLabel(subtitle); small.setAlignment(Qt.AlignmentFlag.AlignCenter); small.setStyleSheet("color:#81908f;font-size:11px")
-        root.addWidget(small)
         occupants = window.campaign.positioned(zone)
+        actor_row = QHBoxLayout(); actor_row.setSpacing(5); actor_row.setContentsMargins(0, 0, 0, 0)
         if occupants:
-            for actor in occupants[:2]:
-                root.addWidget(ActorCard(window, actor), 1)
+            for actor in occupants[:2]: actor_row.addWidget(ActorCard(window, actor), 1)
+            if len(occupants) == 1: actor_row.addStretch(1)
         else:
-            empty = QLabel("СВОБОДНЫЙ РЯД\nдо двух участников")
-            empty.setAlignment(Qt.AlignmentFlag.AlignCenter); empty.setStyleSheet("color:#84918f;border:1px dashed #4c5c5d;border-radius:8px;padding:22px")
-            root.addWidget(empty, 1)
-
-    def paintEvent(self, event):  # type: ignore[override]
-        super().paintEvent(event)
-        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing); painter.setPen(Qt.PenStyle.NoPen)
-        base = int(self.height() * .78); count = 3 if self.zone in {"T1", "T2"} else 2
-        for index in range(count):
-            height = 90 + ((index + len(self.zone)) * 31) % 90
-            x = int((index + 1) * self.width() / (count + 1))
-            painter.setBrush(QColor(118, 143, 136, 32))
-            tree = QPainterPath(); tree.moveTo(x, base - height); tree.lineTo(x - height * .28, base); tree.lineTo(x + height * .28, base); tree.closeSubpath(); painter.drawPath(tree)
-        painter.setPen(QPen(QColor(183, 199, 193, 26), 2)); painter.drawLine(10, base, self.width() - 10, base); painter.end()
+            empty = QLabel(f"{subtitle.upper()}\n\nСВОБОДНО")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter); empty.setStyleSheet("color:#675956;font-family:Georgia;font-size:9px;letter-spacing:2px;border-bottom:1px solid #49302e;padding:20px")
+            actor_row.addWidget(empty, 1)
+        root.addLayout(actor_row, 1)
 
 
 class BattlePage(QWidget):
     def __init__(self, window: "MainWindow"):
-        super().__init__()
-        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(10)
-        header = QHBoxLayout()
-        block = QVBoxLayout(); title = QLabel("Боевая сцена"); title.setObjectName("title"); block.addWidget(title)
-        active = window.engine.active_actor()
-        state_text = f"Раунд {window.campaign.battle.round_number} · ходит {active.name}" if active else "Подготовка · расставьте участников и бросьте инициативу"
-        sub = QLabel(state_text); sub.setObjectName("muted"); block.addWidget(sub)
-        header.addLayout(block, 1)
-        initiative = QPushButton("Бросить инициативу"); initiative.setObjectName("primary"); initiative.setEnabled(window.is_gm()); initiative.clicked.connect(window.roll_initiative)
-        next_turn = QPushButton("Следующий ход"); next_turn.setEnabled(window.is_gm() and window.campaign.battle.active); next_turn.clicked.connect(window.next_turn)
-        header.addWidget(initiative); header.addWidget(next_turn)
+        super().__init__(); root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        header_widget = QWidget(); header = QHBoxLayout(header_widget); header.setContentsMargins(16, 10, 16, 10)
+        block = QVBoxLayout(); eyebrow = QLabel("ТЕАТР БОЯ"); eyebrow.setObjectName("eyebrow"); block.addWidget(eyebrow)
+        title = QLabel("Боевая сцена"); title.setObjectName("title"); block.addWidget(title)
+        active = window.engine.active_actor(); state_text = f"РАУНД {window.campaign.battle.round_number}  ·  ХОД: {active.name.upper()}" if active else "ПОДГОТОВКА  ·  ВЫСТАВЬТЕ УЧАСТНИКОВ"
+        sub = QLabel(state_text); sub.setObjectName("muted"); block.addWidget(sub); header.addLayout(block, 1)
+        initiative = QPushButton("БРОСИТЬ ИНИЦИАТИВУ"); initiative.setObjectName("primary"); initiative.setEnabled(window.is_gm()); initiative.clicked.connect(window.roll_initiative); header.addWidget(initiative)
+        next_turn = QPushButton("СЛЕДУЮЩИЙ ХОД"); next_turn.setEnabled(window.is_gm() and window.campaign.battle.active); next_turn.clicked.connect(window.next_turn); header.addWidget(next_turn)
         if window.is_gm() and window.campaign.battle.active:
-            finish = QPushButton("Завершить бой"); finish.clicked.connect(window.end_combat); header.addWidget(finish)
-        if window.is_gm():
-            enemy = QPushButton("＋ Быстро врага"); enemy.clicked.connect(lambda: window.import_character("enemy")); header.addWidget(enemy)
-        root.addLayout(header)
+            finish = QPushButton("ЗАВЕРШИТЬ"); finish.clicked.connect(window.end_combat); header.addWidget(finish)
+        root.addWidget(header_widget)
         if window.last_banner:
             banner = QLabel(window.last_banner); banner.setObjectName("banner"); banner.setWordWrap(True); root.addWidget(banner)
-        battlefield = BattleStage()
-        battle_layout = QHBoxLayout(battlefield); battle_layout.setContentsMargins(10, 10, 10, 10); battle_layout.setSpacing(8)
-        labels = (("T1", "Тыл героев", "укрытие и поддержка"), ("A1", "Авангард героев", "контактная линия"), ("A2", "Авангард врагов", "контактная линия"), ("T2", "Тыл врагов", "стрелки и лидеры"))
-        for zone, title, subtitle in labels:
-            battle_layout.addWidget(ZoneFrame(window, zone, title, subtitle), 1)
+        battlefield = BattleStage(); battle_layout = QHBoxLayout(battlefield); battle_layout.setContentsMargins(8, 8, 8, 8); battle_layout.setSpacing(2)
+        labels = (("T1", "Тыл", "герои · укрытие"), ("A1", "Авангард", "герои · контакт"), ("A2", "Авангард", "враги · контакт"), ("T2", "Тыл", "враги · поддержка"))
+        for index, (zone, title_text, subtitle) in enumerate(labels):
+            battle_layout.addWidget(ZoneFrame(window, zone, title_text, subtitle), 1)
+            if index == 1:
+                clash = QLabel("VS"); clash.setFixedWidth(26); clash.setAlignment(Qt.AlignmentFlag.AlignCenter); clash.setStyleSheet("font-family:Georgia;font-size:15px;font-weight:700;color:#b64b3d;background:#160e10;border-left:1px solid #6a302c;border-right:1px solid #6a302c"); battle_layout.addWidget(clash)
         root.addWidget(battlefield, 1)
-        footer = QHBoxLayout()
-        reserve = [x for x in window.campaign.characters if window.campaign.battle.positions.get(x.id, "reserve") == "reserve"]
-        reserve_text = ", ".join(x.name for x in reserve) if reserve else "пуст"
-        reserve_label = QLabel(f"Резерв: {reserve_text}"); reserve_label.setWordWrap(True); reserve_label.setObjectName("muted"); footer.addWidget(reserve_label, 2)
-        if window.campaign.battle.log:
-            last = QLabel("Последнее: " + window.campaign.battle.log[-1]); last.setWordWrap(True); last.setObjectName("muted"); footer.addWidget(last, 3)
-        root.addLayout(footer)
+        root.addWidget(self._action_console(window))
+
+    def _action_console(self, window: "MainWindow") -> QWidget:
+        console = QFrame(); console.setObjectName("stageConsole"); console.setFixedHeight(158)
+        layout = QHBoxLayout(console); layout.setContentsMargins(14, 9, 14, 10); layout.setSpacing(10)
+        actor = window.engine.active_actor() or window.campaign.character(window.selected_character_id)
+        if not actor and window.campaign.characters: actor = window.campaign.characters[0]
+        identity = QFrame(); identity.setObjectName("panel"); identity.setFixedWidth(210); identity_layout = QVBoxLayout(identity); identity_layout.setContentsMargins(10, 8, 10, 8)
+        label = QLabel("АКТИВНЫЙ БОЕЦ"); label.setObjectName("eyebrow"); identity_layout.addWidget(label)
+        if actor:
+            name = QLabel(actor.name); name.setWordWrap(True); name.setStyleSheet("font-family:Georgia;font-size:17px;font-weight:700;color:#efe0d2"); identity_layout.addWidget(name)
+            identity_layout.addWidget(QLabel(f"ОЗ {actor.hp}/{actor.max_hp}  ·  КД {actor.armor_class}  ·  {window.campaign.battle.positions.get(actor.id, 'резерв')}"))
+            resources = " · ".join(f"{r.name} {r.current}/{r.maximum}" for r in actor.resources[:2]) or "Ресурсы не ограничены"
+            res = QLabel(resources); res.setWordWrap(True); res.setObjectName("muted"); identity_layout.addWidget(res)
+            tactics = QPushButton("ТАКТИКА И СОСТОЯНИЯ"); tactics.setEnabled(window.can_control(actor)); tactics.clicked.connect(lambda: window.actor_menu(actor, tactics)); identity_layout.addWidget(tactics)
+        else:
+            identity_layout.addWidget(QLabel("На сцене пока никого нет.")); identity_layout.addStretch()
+        layout.addWidget(identity)
+        actions_box = QVBoxLayout(); action_title = QHBoxLayout(); title = QLabel("ДЕЙСТВИЯ В ОДИН КЛИК"); title.setObjectName("section"); action_title.addWidget(title); action_title.addStretch()
+        if actor: action_title.addWidget(QLabel("выберите цель на сцене →"))
+        actions_box.addLayout(action_title)
+        action_row = QHBoxLayout(); action_row.setSpacing(6)
+        if actor and actor.actions:
+            for index, action in enumerate(actor.actions[:5]):
+                resource = next((x for x in actor.resources if x.id == action.resource_id), None)
+                detail = f"{action.damage}" if action.kind != "utility" else "особое"
+                if action.save_dc: detail = f"Сл {action.save_dc} · {action.damage}"
+                if action.recharge: detail += f" · {action.recharge}"
+                if resource: detail += f" · {resource.current}/{resource.maximum}"
+                button = QPushButton(f"{'✦' if index == 0 else '◇'}  {action.name.upper()}\n{detail}"); button.setObjectName("abilityCard"); button.setMinimumWidth(120); button.setEnabled(window.can_control(actor)); button.clicked.connect(lambda _=False, aid=action.id, actor_id=actor.id: window.use_specific_action(actor_id, aid)); action_row.addWidget(button, 1)
+        else:
+            empty = QLabel("Действия не распознаны. Импортируйте полный статблок или добавьте действие в листе."); empty.setWordWrap(True); empty.setObjectName("muted"); action_row.addWidget(empty, 1)
+        actions_box.addLayout(action_row, 1); layout.addLayout(actions_box, 1)
+        dice = QFrame(); dice.setObjectName("panel"); dice.setFixedWidth(170); dice_layout = QVBoxLayout(dice); dice_layout.setContentsMargins(8, 8, 8, 8)
+        dice_title = QLabel("БЫСТРЫЕ КУБЫ"); dice_title.setObjectName("eyebrow"); dice_layout.addWidget(dice_title)
+        grid = QGridLayout(); grid.setSpacing(3)
+        for index, die in enumerate((4, 6, 8, 10, 12, 20)):
+            button = QPushButton(f"d{die}"); button.setFixedHeight(27); button.clicked.connect(lambda _=False, d=die: window.quick_roll(f"1d{d}")); grid.addWidget(button, index//3, index%3)
+        dice_layout.addLayout(grid)
+        latest = window.campaign.recent_rolls[0] if window.campaign.recent_rolls else "—"
+        result = QLabel(f"ПОСЛЕДНИЙ  {latest}"); result.setAlignment(Qt.AlignmentFlag.AlignCenter); result.setStyleSheet("font-family:Georgia;font-size:12px;font-weight:700;color:#d6b27d"); dice_layout.addWidget(result)
+        layout.addWidget(dice); return console
 
 
 class CharactersPage(QWidget):
@@ -426,7 +548,8 @@ class CharactersPage(QWidget):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout(); title = QLabel("Персонажи" if window.is_gm() else "Мой персонаж"); title.setObjectName("title"); header.addWidget(title, 1)
         if window.is_gm():
-            add = QPushButton("＋ Импорт героя"); add.setObjectName("primary"); add.clicked.connect(lambda: window.import_character("hero")); header.addWidget(add)
+            creature = QPushButton("＋ Импорт моба / босса"); creature.setObjectName("primary"); creature.clicked.connect(lambda: window.import_character("enemy")); header.addWidget(creature)
+            add = QPushButton("Импорт героя"); add.clicked.connect(lambda: window.import_character("hero")); header.addWidget(add)
             create = QPushButton("Новый вручную"); create.clicked.connect(window.create_character); header.addWidget(create)
         root.addLayout(header)
         splitter = QSplitter()
@@ -461,6 +584,21 @@ class CharactersPage(QWidget):
             score = actor.stats[key]; mod = (score - 10) // 2
             box = QLabel(f"{key.upper()}\n{score} ({mod:+d})"); box.setAlignment(Qt.AlignmentFlag.AlignCenter); box.setStyleSheet("padding:8px"); grid.addWidget(box, 1, i)
         root.addWidget(stats)
+        creature_lines = []
+        identity = " · ".join(x for x in (actor.creature_size, actor.creature_type, actor.alignment, (f"CR {actor.challenge_rating}" if actor.challenge_rating else "")) if x)
+        if identity: creature_lines.append(identity)
+        if actor.saves: creature_lines.append("Спасброски: " + ", ".join(f"{k.upper()} {v:+d}" for k, v in actor.saves.items()))
+        if actor.skills: creature_lines.append("Навыки: " + ", ".join(f"{k} {v:+d}" for k, v in actor.skills.items()))
+        for label, values in (("Сопротивления", actor.resistances), ("Иммунитеты", actor.immunities), ("Уязвимости", actor.vulnerabilities), ("Иммунитеты к состояниям", actor.condition_immunities)):
+            if values: creature_lines.append(f"{label}: " + ", ".join(values))
+        if actor.senses: creature_lines.append("Чувства: " + actor.senses)
+        if actor.languages: creature_lines.append("Языки: " + actor.languages)
+        if actor.traits: creature_lines.append("Особенности: " + " · ".join(actor.traits))
+        if creature_lines:
+            creature = QFrame(); creature.setObjectName("panel"); creature_layout = QVBoxLayout(creature)
+            heading = QLabel("Лист существа"); heading.setObjectName("section"); creature_layout.addWidget(heading)
+            text = QLabel("\n".join(creature_lines)); text.setWordWrap(True); text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse); creature_layout.addWidget(text)
+            root.addWidget(creature)
         actions = QFrame(); actions.setObjectName("panel"); actions_layout = QVBoxLayout(actions)
         section_row = QHBoxLayout(); section = QLabel("Действия и ресурсы"); section.setObjectName("section"); section_row.addWidget(section); section_row.addStretch()
         if window.can_edit_sheet(actor):
@@ -640,27 +778,36 @@ class MainWindow(QMainWindow):
     def _build_shell(self) -> None:
         root = QWidget(); root.setObjectName("root"); self.setCentralWidget(root)
         outer = QHBoxLayout(root); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
-        sidebar = QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(205); side = QVBoxLayout(sidebar)
-        brand = QLabel("ДРАКОНЬЯ\nСАГА"); brand.setObjectName("brand"); side.addWidget(brand)
-        subtitle = QLabel("БОЕВОЙ СТОЛ · PYTHON"); subtitle.setStyleSheet("color:#7e8e8c;font-size:10px;padding:0 5px 14px"); side.addWidget(subtitle)
+        sidebar = QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(220); side = QVBoxLayout(sidebar); side.setContentsMargins(10, 0, 10, 12); side.setSpacing(4)
+        brand = QLabel("GRIMDICE"); brand.setObjectName("brand"); side.addWidget(brand)
+        subtitle = QLabel("DRAGON SAGA"); subtitle.setObjectName("brandAccent"); side.addWidget(subtitle)
+        section = QLabel("БОЕВОЙ СТОЛ"); section.setObjectName("eyebrow"); section.setStyleSheet("padding:18px 10px 5px"); side.addWidget(section)
         self.battle_nav = QPushButton("⚔   Боевая сцена"); self.battle_nav.setObjectName("nav"); self.battle_nav.setCheckable(True); self.battle_nav.clicked.connect(lambda: self.set_page(0)); side.addWidget(self.battle_nav)
-        self.characters_nav = QPushButton("♙   Персонажи"); self.characters_nav.setObjectName("nav"); self.characters_nav.setCheckable(True); self.characters_nav.clicked.connect(lambda: self.set_page(1)); side.addWidget(self.characters_nav)
+        self.characters_nav = QPushButton("♙   Листы участников"); self.characters_nav.setObjectName("nav"); self.characters_nav.setCheckable(True); self.characters_nav.clicked.connect(lambda: self.set_page(1)); side.addWidget(self.characters_nav)
+        if self.is_gm():
+            import_creature = QPushButton("＋   ИМПОРТ МОБА / БОССА"); import_creature.setObjectName("primary"); import_creature.clicked.connect(lambda: self.import_character("enemy")); side.addWidget(import_creature)
         side.addStretch()
-        save = QPushButton("Сохранить"); save.clicked.connect(self.save_as); side.addWidget(save)
-        network = QPushButton("Общий стол"); network.clicked.connect(lambda: NetworkDialog(self).exec()); side.addWidget(network)
-        self.materials_button = QPushButton("Материалы"); self.materials_button.setEnabled(self.is_gm()); self.materials_button.clicked.connect(lambda: MaterialsDialog(self).exec()); side.addWidget(self.materials_button)
-        help_button = QPushButton("Наши правила"); help_button.clicked.connect(self.show_rules); side.addWidget(help_button)
-        self.role_label = QLabel(); self.role_label.setWordWrap(True); self.role_label.setStyleSheet("color:#7f908e;padding:8px"); side.addWidget(self.role_label)
+        line = QFrame(); line.setFixedHeight(1); line.setStyleSheet("background:#342b2b"); side.addWidget(line)
+        self.materials_button = QPushButton("Материалы и модели"); self.materials_button.setEnabled(self.is_gm()); self.materials_button.clicked.connect(lambda: MaterialsDialog(self).exec()); side.addWidget(self.materials_button)
+        network = QPushButton("Общий сетевой стол"); network.clicked.connect(lambda: NetworkDialog(self).exec()); side.addWidget(network)
+        save = QPushButton("Сохранить стол"); save.clicked.connect(self.save_as); side.addWidget(save)
+        help_button = QPushButton("Правила сцены"); help_button.clicked.connect(self.show_rules); side.addWidget(help_button)
+        self.role_label = QLabel(); self.role_label.setWordWrap(True); self.role_label.setStyleSheet("color:#847874;padding:10px;font-size:10px;letter-spacing:1px"); side.addWidget(self.role_label)
         outer.addWidget(sidebar)
-        center = QWidget(); center_layout = QVBoxLayout(center); center_layout.setContentsMargins(18, 16, 14, 16)
-        top = QHBoxLayout(); edition = QLabel("D&D 5e"); edition.setStyleSheet("font-weight:700;color:#c5ae83"); top.addWidget(edition); top.addStretch()
-        self.edition = QComboBox(); self.edition.addItems(["2014", "2024"]); self.edition.setCurrentText(self.campaign.edition); self.edition.currentTextChanged.connect(self.change_edition); top.addWidget(QLabel("Редакция")); top.addWidget(self.edition)
-        self.open_button = QPushButton("Открыть JSON"); self.open_button.setEnabled(self.is_gm()); self.open_button.clicked.connect(self.open_file); top.addWidget(self.open_button)
-        self.reset_button = QPushButton("Стартовая сцена"); self.reset_button.setEnabled(self.is_gm()); self.reset_button.clicked.connect(self.reset_campaign); top.addWidget(self.reset_button)
-        center_layout.addLayout(top)
-        self.stack = QStackedWidget(); center_layout.addWidget(self.stack, 1)
-        outer.addWidget(center, 1)
-        self.dice = DiceSidebar(self); outer.addWidget(self.dice)
+
+        center = QWidget(); center_layout = QVBoxLayout(center); center_layout.setContentsMargins(0, 0, 0, 0); center_layout.setSpacing(0)
+        topbar = QFrame(); topbar.setObjectName("topbar"); topbar.setFixedHeight(66); top = QHBoxLayout(topbar); top.setContentsMargins(18, 8, 16, 8)
+        campaign = QVBoxLayout(); eyebrow = QLabel("КАМПАНИЯ"); eyebrow.setObjectName("eyebrow"); campaign.addWidget(eyebrow)
+        campaign_name = QLabel("Драконья Сага"); campaign_name.setStyleSheet("font-family:Georgia;font-size:18px;font-weight:700;color:#e9ddd2"); campaign.addWidget(campaign_name); top.addLayout(campaign)
+        top.addStretch()
+        self.edition = QComboBox(); self.edition.addItems(["2014", "2024"]); self.edition.setCurrentText(self.campaign.edition); self.edition.currentTextChanged.connect(self.change_edition); top.addWidget(QLabel("D&D 5e")); top.addWidget(self.edition)
+        self.open_button = QPushButton("ОТКРЫТЬ"); self.open_button.setEnabled(self.is_gm()); self.open_button.clicked.connect(self.open_file); top.addWidget(self.open_button)
+        self.reset_button = QPushButton("СТАРТОВАЯ СЦЕНА"); self.reset_button.setEnabled(self.is_gm()); self.reset_button.clicked.connect(self.reset_campaign); top.addWidget(self.reset_button)
+        if self.is_gm():
+            import_button = QPushButton("＋  НОВЫЙ ПРОТИВНИК"); import_button.setObjectName("primary"); import_button.clicked.connect(lambda: self.import_character("enemy")); top.addWidget(import_button)
+        center_layout.addWidget(topbar)
+        self.stack = QStackedWidget(); center_layout.addWidget(self.stack, 1); outer.addWidget(center, 1)
+        self.dice = None
 
     def refresh(self) -> None:
         self.engine = BattleEngine(self.campaign)
@@ -672,7 +819,7 @@ class MainWindow(QMainWindow):
         self.role_label.setText(("МАСТЕР" if self.is_gm() else "ИГРОК") + (f"\nКомната {self.network.room_code}" if self.network else "\nЛокальный режим"))
         self.edition.blockSignals(True); self.edition.setCurrentText(self.campaign.edition); self.edition.blockSignals(False)
         self.edition.setEnabled(self.is_gm()); self.open_button.setEnabled(self.is_gm()); self.reset_button.setEnabled(self.is_gm()); self.materials_button.setEnabled(self.is_gm())
-        self.dice.refresh()
+        if self.dice is not None: self.dice.refresh()
 
     def set_page(self, index: int) -> None:
         self.current_page = index; self.refresh()
@@ -726,6 +873,15 @@ class MainWindow(QMainWindow):
         if actor and self.can_control(actor):
             actor.hp = max(0, min(actor.max_hp, actor.hp + delta)); self.commit(f"{actor.name}: ОЗ {actor.hp}/{actor.max_hp}")
 
+    def quick_roll(self, formula: str) -> None:
+        try:
+            value = self.engine.roll(formula)
+            self.campaign.recent_rolls.insert(0, f"{formula} = {value.total}")
+            self.campaign.recent_rolls = self.campaign.recent_rolls[:30]
+            self.commit(f"БРОСОК · {formula} = {value.total}")
+        except RuleError as exc:
+            self.error(str(exc))
+
     def use_primary_action(self, actor_id: str) -> None:
         actor = self.campaign.character(actor_id)
         if not actor or not actor.actions: return self.error("У персонажа нет распознанных действий")
@@ -735,6 +891,13 @@ class MainWindow(QMainWindow):
             selected, ok = QInputDialog.getItem(self, "Выберите действие", actor.name, labels, 0, False)
             if not ok: return
             action = actor.actions[labels.index(selected)]
+        self.use_specific_action(actor_id, action.id)
+
+    def use_specific_action(self, actor_id: str, action_id: str) -> None:
+        actor = self.campaign.character(actor_id)
+        if not actor or not self.can_control(actor): return
+        action = next((item for item in actor.actions if item.id == action_id), None)
+        if not action: return self.error("Действие больше не доступно")
         target = self.campaign.character(self.campaign.battle.target_id)
         if action.kind == "heal":
             if not target or target.side != actor.side: target = actor
@@ -835,7 +998,9 @@ class MainWindow(QMainWindow):
         dialog = ImportDialog(side, self)
         if dialog.exec() != QDialog.DialogCode.Accepted: return
         try:
-            parsed = parse_stat_block(dialog.text.toPlainText(), dialog.side.currentData()); actor = parsed.combatant
+            parsed = dialog._last_result or parse_stat_block(dialog.text.toPlainText(), dialog.side.currentData()); actor = parsed.combatant
+            actor.side = dialog.side.currentData(); actor.is_boss = actor.is_boss or dialog.boss_selected
+            actor.audit.append(f"Роль выбрана перед импортом: {dialog.side.currentText()}.")
             self.campaign.characters.append(actor)
             preferred = ("T1", "A1") if actor.side == "hero" else ("A2", "T2")
             zone = next((z for z in preferred if len(self.campaign.positioned(z)) < 2), "reserve")

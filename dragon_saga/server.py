@@ -175,7 +175,7 @@ class DragonSagaHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parts = self._parts()
         if parts == ["api", "health"]:
-            return self._json(200, {"ok": True, "service": "Драконья Сага", "version": "3.2.0"})
+            return self._json(200, {"ok": True, "service": "Драконья Сага", "version": "4.0.0"})
         if len(parts) == 4 and parts[:2] == ["api", "rooms"] and parts[3] == "state":
             room = _room(parts[2])
             session = self._session(room)

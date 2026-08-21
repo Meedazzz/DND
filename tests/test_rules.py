@@ -39,6 +39,23 @@ def test_adjacent_melee_hit_and_damage_are_one_click():
     assert "ПОПАДАНИЕ" not in result.detail  # UI owns the banner; engine owns exact mechanics.
 
 
+def test_imported_direct_damage_applies_damage_defenses_and_recharge_state():
+    action = Action(name="Пламя", kind="damage", damage="2d6", damage_type="fire", recharge="5-6", range_ft=30)
+    caster = Combatant(name="Маг", side="hero", actions=[action])
+    target = Combatant(name="Саламандра", side="enemy", hp=30, max_hp=30, resistances=["fire"])
+    campaign = Campaign(characters=[caster, target]); campaign.battle.positions = {caster.id: "A1", target.id: "A2"}
+    engine = BattleEngine(campaign, FixedDice([5, 4]))
+    result = engine.resolve_action(caster.id, target.id, action.id)
+    assert result.damage == 4 and target.hp == 26
+    assert campaign.battle.flags[caster.id][f"recharge:{action.id}"] is False
+    with pytest.raises(RuleError, match="перезаряд"):
+        engine.resolve_action(caster.id, target.id, action.id)
+
+    campaign.battle.active = True; campaign.battle.initiative = [{"id": caster.id, "value": 20}]
+    engine = BattleEngine(campaign, FixedDice([5])); engine._start_turn()
+    assert campaign.battle.flags[caster.id][f"recharge:{action.id}"] is True
+
+
 def test_opportunity_attack_on_leaving_vanguard():
     campaign, hero, enemy = duel()
     campaign.battle.active = True
