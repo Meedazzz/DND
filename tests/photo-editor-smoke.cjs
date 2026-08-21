@@ -5,12 +5,12 @@ const assert = require('node:assert/strict');
 global.window = {};
 vm.runInThisContext(fs.readFileSync(require.resolve('../public/photo-editor.js'), 'utf8'), { filename: 'photo-editor.js' });
 
-const editor = window.GrimDiceImageEditor;
+const editor = window.DragonSagaImageEditor;
 assert.ok(editor, 'editor API should be registered');
 assert.equal(typeof editor.renderMarkup, 'function');
 assert.equal(typeof editor.mount, 'function');
 assert.ok(Object.isFrozen(editor), 'public API should be immutable');
-for (const capability of ['import', 'crop', 'resize', 'rotate', 'flip', 'color', 'filters', 'chroma-key', 'caption', 'undo-redo', 'export', 'indexeddb-library']) {
+for (const capability of ['import', 'crop', 'resize', 'rotate', 'flip', 'color', 'filters', 'chroma-key', 'caption', 'undo-redo', 'export', 'campaign-library']) {
   assert.ok(editor.capabilities.includes(capability), `missing capability: ${capability}`);
 }
 

@@ -1,0 +1,25 @@
+{
+  "format": "dragon-saga-mod",
+  "version": 1,
+  "manifest": {
+    "name": "Холодное золото",
+    "author": "Dragon Saga example",
+    "createdAt": "2026-08-21T00:00:00.000Z",
+    "appVersion": "2.2.0"
+  },
+  "content": {
+    "items": [],
+    "actions": [],
+    "creatures": [],
+    "mods": []
+  },
+  "assets": [],
+  "theme": {
+    "accent": "#8f3d38",
+    "gold": "#c0a66f"
+  },
+  "animations": {
+    "idleDuration": 4.2
+  },
+  "localization": {}
+}

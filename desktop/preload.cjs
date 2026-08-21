@@ -30,4 +30,4 @@ const bridge = Object.freeze({
   }
 });
 
-contextBridge.exposeInMainWorld('grimdiceDesktop', bridge);
+contextBridge.exposeInMainWorld('dragonSagaDesktop', bridge);

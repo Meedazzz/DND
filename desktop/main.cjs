@@ -6,7 +6,7 @@ const http = require('node:http');
 const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 
-const PORT = Number(process.env.GRIMDICE_PORT || 4173);
+const PORT = Number(process.env.DRAGON_SAGA_PORT || 4173);
 const HOST = '0.0.0.0';
 const APP_URL = `http://127.0.0.1:${PORT}`;
 const RELEASES_URL = 'https://github.com/Meedazzz/DND/releases';
@@ -101,7 +101,7 @@ async function checkForUpdates(interactive = true) {
     if (interactive && mainWindow) {
       dialog.showMessageBox(mainWindow, {
         type: 'warning',
-        title: 'Обновление GrimDice',
+        title: 'Обновление «Драконьей Саги»',
         message: 'Не удалось проверить обновления.',
         detail: String(error?.message || error)
       });
@@ -144,13 +144,13 @@ async function waitForServer(url, attempts = 80) {
     if (ready) return;
     await new Promise((resolve) => setTimeout(resolve, 125));
   }
-  throw new Error('Локальный сервер GrimDice не запустился вовремя.');
+  throw new Error('Локальный сервер «Драконьей Саги» не запустился вовремя.');
 }
 
 async function startEmbeddedServer() {
   process.env.PORT = String(PORT);
   process.env.HOST = HOST;
-  process.env.GRIMDICE_DATA_DIR = app.getPath('userData');
+  process.env.DRAGON_SAGA_DATA_DIR = app.getPath('userData');
   const serverPath = app.isPackaged
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'server.mjs')
     : path.join(__dirname, '..', 'server.mjs');
@@ -162,10 +162,10 @@ async function startEmbeddedServer() {
 
 async function saveCampaign(defaultName, content) {
   const result = await dialog.showSaveDialog(mainWindow, {
-    title: 'Сохранить кампанию GrimDice',
-    defaultPath: defaultName || 'campaign.grimdice.json',
+    title: 'Сохранить кампанию «Драконья Сага»',
+    defaultPath: defaultName || 'campaign.dragon-saga.json',
     filters: [
-      { name: 'Кампания GrimDice', extensions: ['json'] },
+      { name: 'Кампания «Драконья Сага»', extensions: ['json'] },
       { name: 'Все файлы', extensions: ['*'] }
     ]
   });
@@ -176,10 +176,10 @@ async function saveCampaign(defaultName, content) {
 
 async function openCampaign() {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Открыть кампанию GrimDice',
+    title: 'Открыть кампанию «Драконьей Саги»',
     properties: ['openFile'],
     filters: [
-      { name: 'Кампания GrimDice', extensions: ['json'] },
+      { name: 'Кампания «Драконья Сага»', extensions: ['json'] },
       { name: 'Все файлы', extensions: ['*'] }
     ]
   });
@@ -235,7 +235,7 @@ function buildMenu() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    title: 'GrimDice',
+    title: 'Драконья Сага',
     width: 1560,
     height: 980,
     minWidth: 1120,
@@ -282,7 +282,7 @@ if (hasLock) {
       createWindow();
       setupUpdater();
     } catch (error) {
-      dialog.showErrorBox('GrimDice', String(error?.stack || error));
+      dialog.showErrorBox('Драконья Сага', String(error?.stack || error));
       app.quit();
     }
     app.on('activate', () => {

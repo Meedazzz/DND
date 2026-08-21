@@ -1,10 +1,10 @@
 {
-  "name": "grimdice-vtt",
-  "version": "2.1.0",
+  "name": "dragon-saga-vtt",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "main": "desktop/main.cjs",
-  "description": "Готическая настольная 5e-кампания: пять героев, экспедиции, Бастион, конструктор, визуальные моды и защищённая сеть",
+  "description": "«Драконья Сага» — настольный стол кампании 5e с четырёхзонным боем, северным миром, торговлей, сценами и защищённой сетью",
   "homepage": "https://github.com/Meedazzz/DND",
   "author": {
     "name": "Meedazzz",
@@ -19,9 +19,10 @@
     "pack:windows": "node desktop/build.cjs windows",
     "pack:linux": "node desktop/build.cjs linux",
     "pack:mac": "node desktop/build.cjs mac",
-    "test": "npm run test:syntax && npm run test:renderer && npm run test:network && npm run test:editor",
-    "test:syntax": "node --check public/app.js && node --check public/photo-editor.js && node --check server.mjs && node --check desktop/main.cjs && node --check desktop/preload.cjs",
+    "test": "npm run test:syntax && npm run test:renderer && npm run test:tactical && npm run test:network && npm run test:editor",
+    "test:syntax": "node --check public/engine.js && node --check public/app.js && node --check public/photo-editor.js && node --check server.mjs && node --check desktop/main.cjs && node --check desktop/preload.cjs",
     "test:renderer": "node tests/renderer-smoke.cjs",
+    "test:tactical": "node tests/tactical-smoke.cjs",
     "test:network": "node tests/network-smoke.mjs",
     "test:editor": "node tests/photo-editor-smoke.cjs"
   },
@@ -33,8 +34,8 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "com.meedazzz.grimdice",
-    "productName": "GrimDice",
+    "appId": "com.meedazzz.dragonsaga",
+    "productName": "Драконья Сага",
     "asar": true,
     "asarUnpack": [
       "server.mjs",
@@ -70,15 +71,15 @@
         }
       ],
       "icon": "assets/icon.png",
-      "artifactName": "GrimDice-${version}-Windows-${arch}-Setup.${ext}"
+      "artifactName": "Dragon-Saga-${version}-Windows-${arch}-Setup.${ext}"
     },
     "nsis": {
-      "artifactName": "GrimDice-${version}-Windows-${arch}-Setup.${ext}",
+      "artifactName": "Dragon-Saga-${version}-Windows-${arch}-Setup.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "GrimDice",
+      "shortcutName": "Драконья Сага",
       "deleteAppDataOnUninstall": false
     },
     "linux": {
@@ -88,10 +89,10 @@
       ],
       "category": "Game",
       "icon": "assets/icon.png",
-      "executableName": "grimdice",
+      "executableName": "dragon-saga",
       "syncDesktopName": true,
       "maintainer": "Meedazzz <149483374+Meedazzz@users.noreply.github.com>",
-      "artifactName": "GrimDice-${version}-Linux-${arch}.${ext}"
+      "artifactName": "Dragon-Saga-${version}-Linux-${arch}.${ext}"
     },
     "mac": {
       "target": [
@@ -100,18 +101,18 @@
       ],
       "category": "public.app-category.role-playing-games",
       "icon": "assets/icon.png",
-      "artifactName": "GrimDice-${version}-macOS-${arch}.${ext}",
+      "artifactName": "Dragon-Saga-${version}-macOS-${arch}.${ext}",
       "identity": null
     },
     "dmg": {
-      "artifactName": "GrimDice-${version}-macOS-${arch}.${ext}",
-      "title": "GrimDice ${version}"
+      "artifactName": "Dragon-Saga-${version}-macOS-${arch}.${ext}",
+      "title": "Драконья Сага ${version}"
     }
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
   },
-  "desktopName": "grimdice.desktop",
+  "desktopName": "dragon-saga.desktop",
   "repository": {
     "type": "git",
     "url": "https://github.com/Meedazzz/DND.git"

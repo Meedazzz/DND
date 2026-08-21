@@ -176,7 +176,7 @@
               </label>
               <label>Название<input id="photoEditorTitle" maxlength="80" placeholder="Название ресурса"></label>
               <button class="button primary wide" data-editor-action="save-library" ${hasSource ? '' : 'disabled'}>Сохранить в библиотеку</button>
-              <p class="micro">Бинарный файл попадёт в локальное IndexedDB-хранилище и может быть включён в пакет мода.</p>
+              <p class="micro">Обработанное изображение сохранится в медиатеке текущей кампании и может быть назначено сцене или персонажу.</p>
             </div>
             <div id="photoEditorStatus" class="editor-status" role="status">Готово к работе.</div>
           </aside>
@@ -501,7 +501,7 @@
       const blob = await canvasBlob();
       const category = state.root?.querySelector?.('#photoEditorCategory')?.value || 'backgrounds';
       const title = state.root?.querySelector?.('#photoEditorTitle')?.value.trim() || outputName().replace(/\.[^.]+$/, '');
-      const event = new CustomEvent('grimdice-image-save', {
+      const event = new CustomEvent('dragon-saga-image-save', {
         detail: {
           blob,
           name: outputName(),
@@ -596,9 +596,9 @@
     syncUndoButtons();
   }
 
-  window.GrimDiceImageEditor = Object.freeze({
+  window.DragonSagaImageEditor = Object.freeze({
     renderMarkup,
     mount,
-    capabilities: Object.freeze(['import', 'crop', 'resize', 'rotate', 'flip', 'color', 'filters', 'vignette', 'grain', 'chroma-key', 'caption', 'undo-redo', 'export', 'indexeddb-library'])
+    capabilities: Object.freeze(['import', 'crop', 'resize', 'rotate', 'flip', 'color', 'filters', 'vignette', 'grain', 'chroma-key', 'caption', 'undo-redo', 'export', 'campaign-library'])
   });
 })();

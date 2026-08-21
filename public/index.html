@@ -3,88 +3,54 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#110f10" />
-  <title>GrimDice — мастерская боя 5e</title>
+  <meta name="theme-color" content="#0b1014" />
+  <title>Драконья Сага — стол кампании 5e</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div id="app" class="app-shell">
     <aside class="sidebar">
-      <button class="brand" data-view="combat" aria-label="На главную">
-        <span class="brand-mark"><i></i></span>
-        <span><b>GRIM</b><em>DICE</em></span>
+      <button class="brand" data-view="dashboard" aria-label="Обзор кампании">
+        <span class="brand-sigil" aria-hidden="true"><i></i></span>
+        <span class="brand-copy"><b>ДРАКОНЬЯ</b><em>САГА</em></span>
       </button>
-
-      <nav class="main-nav" aria-label="Разделы">
-        <button data-view="combat" class="nav-item active">
-          <span class="nav-icon">⚔</span><span>Бой</span><small id="navRound">РАУНД 1</small>
-        </button>
-        <button data-view="expedition" class="nav-item">
-          <span class="nav-icon">⌁</span><span>Экспедиция</span><small>МАРШРУТ & СВЕТ</small>
-        </button>
-        <button data-view="hub" class="nav-item">
-          <span class="nav-icon">♜</span><span>Бастион</span><small>РОСТ & ОТДЫХ</small>
-        </button>
-        <button data-view="characters" class="nav-item">
-          <span class="nav-icon">♟</span><span>Персонажи</span><small id="navCharacters">0 ЛИСТОВ</small>
-        </button>
-        <button data-view="scene" class="nav-item">
-          <span class="nav-icon">⌗</span><span>Сцена</span><small>ПОЗИЦИОННЫЙ БОЙ</small>
-        </button>
-        <button data-view="library" class="nav-item">
-          <span class="nav-icon">♪</span><span>Медиатека</span><small>АССЕТЫ & ЗВУК</small>
-        </button>
-        <button data-view="photo" class="nav-item" data-gm-only="true">
-          <span class="nav-icon">◩</span><span>Фоторедактор</span><small>КАДР & ЭФФЕКТЫ</small>
-        </button>
-        <button data-view="workshop" class="nav-item">
-          <span class="nav-icon">⚒</span><span>Конструктор</span><small>КОНТЕНТ & МОДЫ</small>
-        </button>
-        <button data-view="rules" class="nav-item">
-          <span class="nav-icon">§</span><span>Правила</span><small>АВТОМАТИЗАЦИЯ</small>
-        </button>
+      <div class="role-ribbon"><span id="roleBadge">МАСТЕР</span><small id="roleHint">полный контроль стола</small></div>
+      <nav class="main-nav" aria-label="Разделы кампании">
+        <button data-view="dashboard" class="nav-item active"><span class="nav-icon">◈</span><span>Обзор</span><small>ГРУППА & РЕСУРСЫ</small></button>
+        <button data-view="battle" class="nav-item"><span class="nav-icon">⚔</span><span>Поле боя</span><small id="navRound">РАУНД 1</small></button>
+        <button data-view="characters" class="nav-item"><span class="nav-icon">♙</span><span id="characterNavLabel">Персонажи</span><small id="navCharacters">0 ЛИСТОВ</small></button>
+        <button data-view="journal" class="nav-item"><span class="nav-icon">✎</span><span>Журнал</span><small>ЗАМЕТКИ & ХРОНИКА</small></button>
+        <button data-view="world" class="nav-item"><span class="nav-icon">⌘</span><span>Север</span><small>КАРТА & МАРШРУТЫ</small></button>
+        <button data-view="cities" class="nav-item"><span class="nav-icon">♜</span><span>Города</span><small>ТОРГОВЦЫ & ОБМЕН</small></button>
+        <button data-view="scene" class="nav-item"><span class="nav-icon">▧</span><span>Сцены</span><small>ФОН & ОБЪЕКТЫ</small></button>
+        <button data-view="library" class="nav-item"><span class="nav-icon">♪</span><span>Медиатека</span><small>МОДЕЛИ & ЗВУК</small></button>
+        <button data-view="photo" class="nav-item" data-editor-only="true"><span class="nav-icon">◩</span><span>Фоторедактор</span><small>КАДР & ЭФФЕКТЫ</small></button>
+        <button data-view="workshop" class="nav-item" data-gm-only="true"><span class="nav-icon">⚒</span><span>Конструктор</span><small>КОНТЕНТ & МОДЫ</small></button>
+        <button data-view="rules" class="nav-item"><span class="nav-icon">§</span><span>Правила</span><small>ПОМОЩЬ ПО РОЛИ</small></button>
       </nav>
-
       <div class="side-bottom">
-        <div class="sync-status" id="syncStatus"><i></i><span>Локальная игра</span></div>
+        <div class="sync-status" id="syncStatus"><i></i><span>Локальная кампания</span></div>
         <button class="side-action" id="saveExportBtn">⇩ <span>Сохранить кампанию</span></button>
         <button class="side-action" id="updateBtn" hidden>↻ <span>Обновления</span></button>
-        <button class="side-action" id="settingsBtn">⚙ <span>Настройки</span></button>
-        <div class="version">FORGE 2.1 · FIVE HEROES</div>
+        <button class="side-action" id="settingsBtn">⚙ <span>Настройки и права</span></button>
+        <div class="version">DRAGON SAGA · 2.2.0</div>
       </div>
     </aside>
 
     <div class="main-column">
       <header class="topbar">
-        <div class="campaign-heading">
-          <span class="eyebrow">КАМПАНИЯ</span>
-          <button id="campaignTitle" class="title-edit" title="Переименовать кампанию">Пепел на тракте <span>✎</span></button>
-        </div>
-
-        <div class="top-center">
-          <div class="edition-switch" role="group" aria-label="Редакция правил">
-            <button data-edition="2014">5E · 2014</button>
-            <button data-edition="2024" class="active">5E · 2024</button>
-          </div>
-          <span id="autosaveLabel" class="autosave">✓ СОХРАНЕНО</span>
-        </div>
-
-        <div class="top-actions">
-          <button class="ghost-btn" id="quickDiceBtn">◇ Быстрый бросок</button>
-          <button class="room-btn" id="roomBtn"><i></i><span>Подключить стол</span></button>
-          <button class="avatar-btn" id="gmMenuBtn" title="Меню мастера">М</button>
-        </div>
+        <div class="campaign-heading"><span class="eyebrow">КАМПАНИЯ</span><button id="campaignTitle" class="title-edit" title="Переименовать кампанию">Новая сага <span>✎</span></button></div>
+        <div class="top-center"><div class="edition-switch" role="group" aria-label="Редакция правил"><button data-edition="2014">5E · 2014</button><button data-edition="2024" class="active">5E · 2024</button></div><span id="autosaveLabel" class="autosave">✓ СОХРАНЕНО</span></div>
+        <div class="top-actions"><button class="ghost-btn" id="quickDiceBtn">◇ Бросок</button><button class="room-btn" id="roomBtn"><i></i><span>Общий стол</span></button><button class="avatar-btn" id="profileBtn" title="Профиль и права">М</button></div>
       </header>
-
-      <main id="mainContent">
-        <!-- Views are rendered by app.js -->
-      </main>
+      <main id="mainContent"></main>
     </div>
   </div>
-
   <div id="toastHost" class="toast-host" aria-live="polite"></div>
   <div id="modalHost"></div>
   <input id="campaignImportInput" type="file" accept="application/json,.json" hidden />
+  <script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
+  <script src="/engine.js"></script>
   <script src="/photo-editor.js"></script>
   <script src="/app.js"></script>
 </body>
