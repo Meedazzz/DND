@@ -404,7 +404,6 @@ class StrategicStage(QWidget):
         self.init_ui()
         self.init_field()
         self.init_armies()
-        self.connect_signals()
 
     def init_ui(self) -> None:
         layout = QVBoxLayout(self)
