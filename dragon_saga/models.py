@@ -55,6 +55,7 @@ class Combatant:
     id: str = field(default_factory=lambda: uid("char"))
     name: str = "Безымянный"
     side: str = "hero"
+    rank: str = ""  # hero | mob | elite | boss — для портретных заглушек и журнала
     class_name: str = ""
     race: str = ""
     level: int = 1
@@ -149,7 +150,7 @@ class BattleState:
 @dataclass
 class Campaign:
     schema: str = "dragon-saga-python"
-    version: str = "4.0.0"
+    version: str = "5.0.0"
     title: str = "Драконья Сага"
     edition: str = "2024"
     role: str = "gm"
@@ -191,6 +192,7 @@ def starter_campaign() -> Campaign:
     for index, (name, cls_name, ac, hp, action_name, bonus, damage, zone) in enumerate(archetypes):
         hero = Combatant(
             name=name,
+            rank="hero",
             class_name=cls_name,
             armor_class=ac,
             hp=hp,

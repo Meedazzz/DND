@@ -130,7 +130,7 @@ def apply_player_state(room: Room, session: Session, incoming: dict[str, Any]) -
 
 
 class DragonSagaHandler(BaseHTTPRequestHandler):
-    server_version = "DragonSagaPython/3.2"
+    server_version = "DragonSagaPython/5.0"
 
     def log_message(self, fmt: str, *args: object) -> None:
         if getattr(self.server, "quiet", False):
@@ -175,7 +175,7 @@ class DragonSagaHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parts = self._parts()
         if parts == ["api", "health"]:
-            return self._json(200, {"ok": True, "service": "Драконья Сага", "version": "4.0.0"})
+            return self._json(200, {"ok": True, "service": "Драконья Сага", "version": "5.0.0"})
         if len(parts) == 4 and parts[:2] == ["api", "rooms"] and parts[3] == "state":
             room = _room(parts[2])
             session = self._session(room)
@@ -249,6 +249,9 @@ class DragonSagaHandler(BaseHTTPRequestHandler):
                         kind = str(body.get("kind", "short")); spent = max(0, min(20, int(body.get("spend_hit_dice", 0))))
                         healed = engine.rest(actor_id, kind, spent)
                         result_payload.update({"detail": campaign.battle.log[-1], "healed": healed})
+                    elif operation == "death_save":
+                        result = engine.death_save(actor_id)
+                        result_payload.update({"title": result.title, "detail": result.detail, "hit": result.hit})
                     else:
                         return self._json(400, {"error": "Неизвестный тактический приём"})
                     room.state = campaign.to_dict(); room.revision += 1

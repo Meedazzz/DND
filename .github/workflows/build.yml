@@ -37,7 +37,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -r requirements-dev.txt
-      - run: pyinstaller --noconfirm --clean --windowed --icon packaging/dragon-saga.ico --name DragonSaga main.py
+      - run: pyinstaller --noconfirm --clean --windowed --icon packaging/dragon-saga.ico --add-data "dragon_saga/resources;dragon_saga/resources" --name DragonSaga main.py
       - name: Build Inno Setup installer
         shell: pwsh
         run: |
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: release/Dragon-Saga-4.0.0-Windows-x64-Setup.exe
+          path: release/Dragon-Saga-5.0.0-Windows-x64-Setup.exe
 
   linux:
     needs: test
@@ -60,7 +60,7 @@ jobs:
           cache: pip
       - run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 libxkbcommon-x11-0 libegl1 libgl1 libxcb-cursor0 libxcb-keysyms1 libxcb-render-util0 libxcb-icccm4 libxcb-util1 libxcb-image0 libxcb-xkb1
       - run: python -m pip install -r requirements-dev.txt
-      - run: pyinstaller --noconfirm --clean --windowed --name DragonSaga main.py
+      - run: pyinstaller --noconfirm --clean --windowed --add-data "dragon_saga/resources:dragon_saga/resources" --name DragonSaga main.py
       - name: Build AppImage and DEB
         shell: bash
         run: |
@@ -77,7 +77,7 @@ jobs:
           chmod +x AppDir/AppRun
           curl -fL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
-          ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir release/Dragon-Saga-4.0.0-Linux-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir release/Dragon-Saga-5.0.0-Linux-x86_64.AppImage
           mkdir -p deb/DEBIAN deb/opt/dragon-saga deb/usr/bin deb/usr/share/applications deb/usr/share/icons/hicolor/scalable/apps
           cp -a dist/DragonSaga/. deb/opt/dragon-saga/
           cp packaging/dragon-saga.desktop deb/usr/share/applications/
@@ -89,7 +89,7 @@ jobs:
           chmod +x deb/usr/bin/dragon-saga
           cat > deb/DEBIAN/control <<'EOF'
           Package: dragon-saga
-          Version: 4.0.0
+          Version: 5.0.0
           Section: games
           Priority: optional
           Architecture: amd64
@@ -97,7 +97,7 @@ jobs:
           Maintainer: Meedazzz <149483374+Meedazzz@users.noreply.github.com>
           Description: Компактный боевой стол D&D 5e на Python
           EOF
-          dpkg-deb --root-owner-group --build deb release/Dragon-Saga-4.0.0-Linux-x86_64.deb
+          dpkg-deb --root-owner-group --build deb release/Dragon-Saga-5.0.0-Linux-x86_64.deb
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -121,12 +121,12 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -r requirements-dev.txt
-      - run: pyinstaller --noconfirm --clean --windowed --icon packaging/dragon-saga.png --name "DragonSaga" main.py
+      - run: pyinstaller --noconfirm --clean --windowed --icon packaging/dragon-saga.png --add-data "dragon_saga/resources:dragon_saga/resources" --name "DragonSaga" main.py
       - name: Build DMG and updater ZIP
         run: |
           mkdir -p release
-          ditto -c -k --sequesterRsrc --keepParent dist/DragonSaga.app release/Dragon-Saga-4.0.0-macOS-${{ matrix.arch }}.zip
-          hdiutil create -volname "Драконья Сага 4.0.0" -srcfolder dist/DragonSaga.app -ov -format UDZO release/Dragon-Saga-4.0.0-macOS-${{ matrix.arch }}.dmg
+          ditto -c -k --sequesterRsrc --keepParent dist/DragonSaga.app release/Dragon-Saga-5.0.0-macOS-${{ matrix.arch }}.zip
+          hdiutil create -volname "Драконья Сага 5.0.0" -srcfolder dist/DragonSaga.app -ov -format UDZO release/Dragon-Saga-5.0.0-macOS-${{ matrix.arch }}.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
