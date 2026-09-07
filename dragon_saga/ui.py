@@ -13,15 +13,18 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
     QInputDialog, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter,
-    QStackedWidget, QTextEdit, QVBoxLayout, QWidget,
+    QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from .models import ABILITIES, Action, Campaign, Combatant, ZONES, starter_campaign
+from .models import ABILITIES, Action, Campaign, Combatant, ZONES, starter_campaign, Resource
 from .network import NetworkClient, NetworkError
-from .parser import parse_stat_block
+from .parser import parse_stat_block, _parse_lss_charm_format
 from .rules import BattleEngine, RuleError
 from .server import create_server
 from .storage import DEFAULT_SAVE, load_campaign, save_campaign
+from .strategic import StrategicStage, UnitToken
+from .dd_stress import DDBattleStage, DDParticipant, StressLevel, Position
+from .calculators import DamageCalculator, SaveDCcalculator, ACComparison, InitiativeTracker
 
 
 APP_ICON_SVG = b'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#172023"/><path d="M95 377L190 104l66 116 66-116 95 273-98-82-63 113-63-113z" fill="#758b7e" stroke="#d2ad6d" stroke-width="18" stroke-linejoin="round"/><circle cx="256" cy="260" r="30" fill="#d2ad6d"/></svg>'''
@@ -784,6 +787,11 @@ class MainWindow(QMainWindow):
         section = QLabel("БОЕВОЙ СТОЛ"); section.setObjectName("eyebrow"); section.setStyleSheet("padding:18px 10px 5px"); side.addWidget(section)
         self.battle_nav = QPushButton("⚔   Боевая сцена"); self.battle_nav.setObjectName("nav"); self.battle_nav.setCheckable(True); self.battle_nav.clicked.connect(lambda: self.set_page(0)); side.addWidget(self.battle_nav)
         self.characters_nav = QPushButton("♙   Листы участников"); self.characters_nav.setObjectName("nav"); self.characters_nav.setCheckable(True); self.characters_nav.clicked.connect(lambda: self.set_page(1)); side.addWidget(self.characters_nav)
+        self.strategic_nav = QPushButton("🗺   Стратегический узел"); self.strategic_nav.setObjectName("nav"); self.strategic_nav.setCheckable(True); self.strategic_nav.clicked.connect(lambda: self.set_page(2)); side.addWidget(self.strategic_nav)
+        self.dd_nav = QPushButton("🩸   Бой в стиле Darkest Dungeon"); self.dd_nav.setObjectName("nav"); self.dd_nav.setCheckable(True); self.dd_nav.clicked.connect(lambda: self.set_page(3)); side.addWidget(self.dd_nav)
+        self.lss_nav = QPushButton("📥   Импорт из LSS"); self.lss_nav.setObjectName("nav"); self.lss_nav.setCheckable(True); self.lss_nav.clicked.connect(lambda: self.set_page(4)); side.addWidget(self.lss_nav)
+        self.lss_charm_nav = QPushButton("📖   Чарники LSS"); self.lss_charm_nav.setObjectName("nav"); self.lss_charm_nav.setCheckable(True); self.lss_charm_nav.clicked.connect(lambda: self.set_page(5)); side.addWidget(self.lss_charm_nav)
+        self.calculators_nav = QPushButton("🧮   Калькуляторы"); self.calculators_nav.setObjectName("nav"); self.calculators_nav.setCheckable(True); self.calculators_nav.clicked.connect(lambda: self.set_page(6)); side.addWidget(self.calculators_nav)
         if self.is_gm():
             import_creature = QPushButton("＋   ИМПОРТ МОБА / БОССА"); import_creature.setObjectName("primary"); import_creature.clicked.connect(lambda: self.import_character("enemy")); side.addWidget(import_creature)
         side.addStretch()
@@ -813,7 +821,10 @@ class MainWindow(QMainWindow):
         self.engine = BattleEngine(self.campaign)
         while self.stack.count():
             widget = self.stack.widget(0); self.stack.removeWidget(widget); widget.deleteLater()
-        self.stack.addWidget(BattlePage(self)); self.stack.addWidget(CharactersPage(self)); self.stack.setCurrentIndex(self.current_page)
+        self.stack.addWidget(BattlePage(self)); self.stack.addWidget(CharactersPage(self))
+        self.stack.addWidget(StrategicStage(self)); self.stack.addWidget(DDBattleStage(self))
+        self.stack.addWidget(LSSImportPage(self)); self.stack.addWidget(self._lss_charm_page(self))
+        self.stack.addWidget(self._calculators_page(self)); self.stack.setCurrentIndex(self.current_page)
         self.battle_nav.setChecked(self.current_page == 0); self.characters_nav.setChecked(self.current_page == 1)
         self.characters_nav.setText("♙   Персонажи" if self.is_gm() else "♙   Мой персонаж")
         self.role_label.setText(("МАСТЕР" if self.is_gm() else "ИГРОК") + (f"\nКомната {self.network.room_code}" if self.network else "\nЛокальный режим"))
@@ -823,6 +834,15 @@ class MainWindow(QMainWindow):
 
     def set_page(self, index: int) -> None:
         self.current_page = index; self.refresh()
+
+    def _sync_nav_checks(self) -> None:
+        self.battle_nav.setChecked(self.current_page == 0)
+        self.characters_nav.setChecked(self.current_page == 1)
+        self.strategic_nav.setChecked(self.current_page == 2)
+        self.dd_nav.setChecked(self.current_page == 3)
+        self.lss_nav.setChecked(self.current_page == 4)
+        self.lss_charm_nav.setChecked(self.current_page == 5)
+        self.calculators_nav.setChecked(self.current_page == 6)
 
     def is_gm(self) -> bool:
         return self.campaign.role == "gm"
@@ -1159,6 +1179,123 @@ class MainWindow(QMainWindow):
         except NetworkError as exc:
             self.last_banner = f"Сеть: {exc}"
         finally: self.network_syncing = False
+
+    def _lss_charm_page(self, window: "MainWindow") -> QWidget:
+        """Страница чарников LSS: список импортированных чарников и быстрый просмотр."""
+        container = QWidget(); container.setObjectName("root")
+        root = QVBoxLayout(container); root.setContentsMargins(0, 0, 0, 0)
+
+        header = QHBoxLayout()
+        title = QLabel("ЧАРНИКИ LSS"); title.setObjectName("title"); header.addWidget(title, 1)
+        header.addStretch()
+        root.addLayout(header)
+
+        desc = QLabel(
+            "Чарники из Long Story Short — готовые действия, спасброски, урон и дистанции.\\n"
+            "Перетаскивайте или импортируйте отдельные чары. Любой чар можно отредактировать в листе участника."
+        )
+        desc.setWordWrap(True); desc.setStyleSheet("color: #807874; font-size: 11px; padding: 8px 16px;")
+        root.addWidget(desc)
+
+        list_frame = QFrame(); list_frame.setObjectName("panel")
+        list_layout = QVBoxLayout(list_frame)
+        list_title = QLabel("ИМПОРТИРОВАННЫЕ ЧАРНИКИ"); list_title.setObjectName("section")
+        list_layout.addWidget(list_title)
+        self._lss_charm_list = QListWidget()
+        self._lss_charm_list.setMinimumHeight(180)
+        self._lss_charm_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        list_layout.addWidget(self._lss_charm_list, 1)
+
+        buttons = QHBoxLayout()
+        refresh_charms = QPushButton("Обновить из LSS")
+        refresh_charms.clicked.connect(self._refresh_lss_charms)
+        buttons.addWidget(refresh_charms)
+        export_charm = QPushButton("Экспорт выделенного")
+        export_charm.clicked.connect(self._export_selected_charm)
+        buttons.addWidget(export_charm)
+        buttons.addStretch()
+        list_layout.addLayout(buttons)
+
+        root.addWidget(list_frame, 1)
+
+        preview_frame = QFrame(); preview_frame.setObjectName("panel")
+        preview_layout = QVBoxLayout(preview_frame)
+        preview_title = QLabel("ПРЕДПРОСМОТР ЧАРА"); preview_title.setObjectName("section")
+        preview_layout.addWidget(preview_title)
+        self._lss_charm_preview = QLabel("Выделите чарник для предпросмотра.")
+        self._lss_charm_preview.setWordWrap(True)
+        self._lss_charm_preview.setStyleSheet("color: #c6c0b8; font-size: 13px; padding: 10px 14px; background:#0d0b0c; border:1px solid #3a3030;")
+        preview_layout.addWidget(self._lss_charm_preview, 1)
+        root.addWidget(preview_frame, 1)
+
+        empty_note = QLabel(
+            "Пусто: импортируйте чарники через страницу «Импорт из LSS» или вставьте текст чара вручную.\\n"
+            "Каждый чарник сохраняется как редактируемое действие на листе участника."
+        )
+        empty_note.setWordWrap(True); empty_note.setObjectName("muted")
+        root.addWidget(empty_note)
+
+        return container
+
+    def _refresh_lss_charms(self) -> None:
+        """Заполнить список чарников последней LSS-сессии (заглушка)."""
+        sample = [
+            "Пример: Удар мечом · 1d8+3 урона · дальн. 5 фт · спасбросок ЛОВ · 1d20+3 — ПРОМАХ",
+            "Пример: Магическая вспышка · 2d6 урона · дистанция 30 фт · нет спасброска",
+        ]
+        self._lss_charm_list.clear()
+        self._lss_charm_list.addItems(sample)
+
+    def _export_selected_charm(self) -> None:
+        """Создать действие из выделенного чарника (заглушка)."""
+        row = self._lss_charm_list.currentRow()
+        if row < 0:
+            return self._lss_charm_preview.setText("Выделите чарник перед экспортом.")
+        self._lss_charm_preview.setText(
+            "Экспорт пока не реализован: свяжите чарник с участником через лист (правка действия)."
+        )
+
+    def _calculators_page(self, window: "MainWindow") -> QWidget:
+        """Страница калькуляторов для визуализации боевых расчётов."""
+        container = QWidget(); container.setObjectName("root")
+        root = QVBoxLayout(container); root.setContentsMargins(0, 0, 0, 0)
+        
+        header = QHBoxLayout()
+        title = QLabel("КАЛЬКУЛЯТОРЫ БОЯ"); title.setObjectName("title"); header.addWidget(title, 1)
+        header.addStretch()
+        root.addLayout(header)
+        
+        desc = QLabel(
+            "Визуальные расчёты для подготовки боя.\n"
+            "Бросайте кубы, сравнивайте КД, рассчитывайте спасброски и инициативу.\n"
+            "Все параметры редактируются — подгоните расчёт под свою ситуацию."
+        )
+        desc.setWordWrap(True); desc.setStyleSheet("color: #807874; font-size: 11px; padding: 8px 16px;")
+        root.addWidget(desc)
+        
+        # Вкладки калькуляторов
+        tabs = QTabWidget()
+        tabs.addTab(DamageCalculator(), "Урон и попадания")
+        tabs.addTab(SaveDCcalculator(), "Спасброски и DC")
+        tabs.addTab(ACComparison(), "Сравнение КД")
+        tabs.addTab(InitiativeTracker(), "Инициатива")
+        
+        # Подсказки для каждой вкладки
+        tips = QFrame(); tips.setObjectName("panel")
+        tips_layout = QVBoxLayout(tips)
+        tip_title = QLabel("РЕДАКТИРУЕМЫЕ ПАРАМЕТРЫ"); tip_title.setObjectName("section"); tips_layout.addWidget(tip_title)
+        
+        tip_data = QLabel(
+            "Урон и попадания: формула броска, бонус атаки, КД цели, режим крита\n"
+            "Спасброски: DC, характеристика, модификатор, урон/лечение, половина урона\n"
+            "Сравнение КД: КД защищающегося/нападающего, преимущества, бонусы/пенальти\n"
+            "Инициатива: список участников, бонусы, броски, очередь ходов"
+        )
+        tip_data.setWordWrap(True); tip_data.setObjectName("muted"); tips_layout.addWidget(tip_data)
+        root.addWidget(tips, 1)
+        
+        root.addWidget(tabs, 1)
+        return container
 
     def closeEvent(self, event):  # type: ignore[override]
         if not self.network or self.is_gm(): save_campaign(self.campaign)

@@ -197,6 +197,15 @@ def _candidate_segments(source: str, markers: list[tuple[int, int, str]]) -> lis
                 results.append((offset + match.start("name"), name, body, section))
     return results
 
+def _extract_formula_parts(text: str) -> list[str]:
+    """Извлекает все формулы вида XdY[+Z/-Z] из текста, включая составные вроде '1d8+3, 2d6 и 3d10-2'."""
+    formulas = []
+    for match in re.finditer(r"(\d+\s*[dкъ]\s*\d+(?:\s*[+−-]\s*\d+)?)", text, re.I):
+        formula = match.group(1).replace(" ", "").replace("к", "d").replace("К", "d").replace("ъ", "d").replace("−", "-")
+        formulas.append(formula)
+    return formulas
+
+
 def _action_from_segment(name: str, body: str, section: str) -> tuple[Action, tuple[int, int, str] | None]:
     attack_match = _first([
         r"(?:Melee|Ranged|Weapon|Spell|Рукопашная|Дальнобойная|Оружейная|Заклинательная)[^.:;]{0,55}(?:Attack|атака)\s*:\s*([+−-]\s*\d+)",
@@ -205,9 +214,21 @@ def _action_from_segment(name: str, body: str, section: str) -> tuple[Action, tu
     ], body)
     attack_bonus = _integer(attack_match)
 
-    dice = re.search(r"(?<!\w)(\d+\s*[dк]\s*\d+(?:\s*[+−-]\s*\d+)?)", body, re.I)
-    damage = dice.group(1).replace(" ", "").replace("к", "d").replace("К", "d").replace("−", "-") if dice else "0"
+    dice = re.search(r"(?<!\w)(\d+\s*[dкъ]\s*\d+(?:\s*[+−-]\s*\d+)?)", body, re.I)
+    damage = dice.group(1).replace(" ", "").replace("к", "d").replace("К", "d").replace("ъ", "d").replace("−", "-") if dice else "0"
     healing = bool(re.search(r"лечение|исцел|восстанавливает\s+\d|healing|regains?\s+\d", body, re.I))
+
+    # ---- Улучшенный парсинг чар и сложных формул ----
+    # Поддержка нескольких формул в одном описании: "1d8+3 урона, 2d6+save урона, 3d10-2"
+    all_formulas = _extract_formula_parts(body)
+
+    # Для чар (заклинательных) — часто бывает формула урона ИЛИ лечения
+    spell_damage_formulas = [f for f in all_formulas if re.search(r"[+-]", f) or re.search(r"\d+d\d+", f)]
+    if not damage and spell_damage_formulas:
+        # Берём первую формулу как урон, остальные можно хранить в описании
+        damage = spell_damage_formulas[0]
+        if len(spell_damage_formulas) > 1:
+            body = body + f" [формулы: {'; '.join(spell_damage_formulas)}]"
 
     save_dc_match = _first([r"(?:Сл|DC)\s*(\d+)", r"(?:сложност[ьи]|difficulty)\s*(\d+)"], body)
     save_dc = _integer(save_dc_match)
@@ -254,6 +275,101 @@ def _action_from_segment(name: str, body: str, section: str) -> tuple[Action, tu
         half_on_save=half_on_save, range_ft=range_ft, section=section, recharge=recharge, description=body,
     )
     return action, uses
+
+
+def _parse_lss_charm_format(text: str) -> list[Action]:
+    """Парсит формат чар, экспортируемых из Long Story Short (LSS).
+
+    Ожидаемый формат (пример):
+        Имя:char:Italia
+        Уровень:1
+        Использование:1/1
+        Расход ресурса:1 за распределение
+        Дистанция:60 футов
+        Компоненты: V, S
+        Длительность: 1 минута
+        Описание:You can speak one language you are not proficient in for the duration.
+
+
+    Или в более свободном виде:
+        Имя:char:Italia
+        Использование:1/1
+        Дистанция:60
+        C1: Концентрация
+        Описание:...
+
+    Возвращает список Action с kind='utility' (черты/чары не всегда атакуют).
+    """
+    if not text or not isinstance(text, str):
+        return []
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    actions = []
+
+    # Пробуем найти имя, использование, дистанцию, компоненты
+    name = ""
+    usage = ""
+    range_ft = 0
+    components = ""
+    duration = ""
+    description_lines = []
+    concentration = False
+
+    for line in lines:
+        lower = line.lower()
+        if line.startswith("Имя:") or line.startswith("Name:"):
+            # Имя может быть в формате "Имя:char:Italia"
+            parts = line.split(":", 2)
+            if len(parts) >= 3 and parts[1] in ("char", "characteristic"):
+                name = parts[2].strip()
+            elif len(parts) >= 2:
+                name = parts[1].strip()
+        elif "использ" in lower or "исп" in lower:
+            usage = line.split(":", 1)[-1].strip()
+        elif lower.startswith("дистан") or lower.startswith("range"):
+            range_match = re.search(r"(\d+)", line.split(":", 1)[-1])
+            if range_match:
+                range_ft = int(range_match.group(1))
+        elif "компонент" in lower or "components" in lower:
+            components = line.split(":", 1)[-1].strip()
+        elif "длительн" in lower or "duration" in lower:
+            duration = line.split(":", 1)[-1].strip()
+        elif "концентр" in lower or "concentration" in lower:
+            concentration = True
+        elif "оценка:" in lower or "rating:" in lower or "стресс:" in lower:
+            # Для DD-стиля — стресс-эффекты
+            pass
+        elif "состояни" in lower or "condition" in lower:
+            # Состояния, возникающие от чара
+            pass
+        elif line.startswith("Описание:") or line.startswith("Description:"):
+            description_lines.append(line.split(":", 1)[-1].strip())
+        elif description_lines or (line and not re.match(r"^[А-ЯA-Z][а-яa-z]*:", line)):
+            # Описание может занять несколько строк
+            description_lines.append(line)
+
+    if name:
+        description = " ".join(description_lines).strip()
+        # Если есть использование в формате X/Y
+        usage_match = re.search(r"(\d+)\s*/\s*(\d+)", usage)
+        uses = None
+        if usage_match:
+            uses = (int(usage_match.group(1)), int(usage_match.group(2)), "long")
+
+        action = Action(
+            name=name[:80],
+            kind="utility",
+            damage="0",
+            range_ft=range_ft,
+            recharge="",
+            description=description or "Без описания",
+            section="actions",
+        )
+        if uses:
+            action.resource_id = ""  # будет установлен позже, если есть ресурс
+        actions.append(action)
+
+    return actions
 
 
 def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
@@ -453,7 +569,7 @@ def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
         combatant.is_boss = True
         result.found.append("легендарные действия / босс")
 
-    # Compact custom format can omit an Actions heading; mechanics on separate lines still become actions.
+    # Компактный табличный формат может не иметь заголовка Действия; механика на отдельных строках всё равно становится действиями.
     if not combatant.actions:
         for raw_line in lines:
             if not re.search(r"\d+\s*[dк]\s*\d+|to hit|к (?:атаке|попаданию)|спасбросок|saving throw", raw_line, re.I):
@@ -473,6 +589,17 @@ def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
             combatant.actions.append(action)
             result.found.append(f"actions: {action.name}")
 
+    # ---- LSS-формат: импорт чар и спеллов из Long Story Short ----
+    # Если в тексте встречается формат "Имя:char:..." или "Имя:spell:...",
+    # пробуем распарсить его как отдельные акции.
+    lss_actions = _parse_lss_charm_format(source)
+    for lss_action in lss_actions:
+        if lss_action not in combatant.actions:
+            combatant.actions.append(lss_action)
+            result.found.append(f"LSS: {lss_action.name}")
+            if lss_action.name not in combatant.traits:
+                combatant.traits.append(lss_action.name)
+
     if combatant.initiative_bonus == 0 and "инициатива" not in result.found and score_count:
         combatant.initiative_bonus = combatant.ability_mod("dex")
         result.warnings.append("Инициатива не указана; для боя вычислен модификатор ЛОВ по правилам 5e.")
@@ -487,7 +614,6 @@ def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
     if score_count == 0:
         result.warnings.append("Характеристики не указаны; значения схемы 10 отмечены как отсутствующие, а не найденные.")
 
-    # Stable audit order, without claiming defaults were found in the source.
     result.found = list(dict.fromkeys(result.found))
     combatant.audit = [
         *(f"Найдено: {item}" for item in result.found),
