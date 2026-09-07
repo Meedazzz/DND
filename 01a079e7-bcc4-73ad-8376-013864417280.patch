@@ -1,0 +1,2902 @@
+diff --git a/dragon_saga/calculators.py b/dragon_saga/calculators.py
+new file mode 100644
+index 0000000..cc3b09f
+--- /dev/null
++++ b/dragon_saga/calculators.py
+@@ -0,0 +1,720 @@
++"""
++Визуальные калькуляторы для оптимизации расчётов на сцене.
++
++Позволяют бросать кубы, сравнивать КД, рассчитывать спасброски и урон
++с наглядной подсветкой результатов.
++"""
++
++from __future__ import annotations
++
++from PySide6.QtCore import Qt, Signal
++from PySide6.QtGui import QPainter, QColor, QPen, QFont
++from PySide6.QtWidgets import (
++    QComboBox,
++    QFrame,
++    QHBoxLayout,
++    QInputDialog,
++    QLabel,
++    QLineEdit,
++    QListWidget,
++    QPushButton,
++    QSizePolicy,
++    QSpinBox,
++    QVBoxLayout,
++    QWidget,
++)
++
++from .models import ABILITIES
++from .rules import BattleEngine, RuleError
++
++
++ABILITY_NAMES = {
++    "str": "СИЛ",
++    "dex": "ЛОВ",
++    "con": "ТЕЛ",
++    "int": "ИНТ",
++    "wis": "МДР",
++    "cha": "ХАР",
++}
++
++
++class DamageCalculator(QWidget):
++    """Визуальный калькулятор урона: бросок кубов, модификаторы, тип урона, результат."""
++
++    calculated = Signal(str)  # формула → текст результата
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.engine = BattleEngine.__new__(BattleEngine)  # не нужен campaign для бросков
++        self.engine.randint = self._randint
++        self._results: list[str] = []
++        self._dice_results: dict[str, list[int]] = {}
++        self.init_ui()
++
++    def _randint(self, low: int, high: int) -> int:
++        import random
++        return random.randint(low, high)
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        title = QLabel("КАЛЬКУЛЯТОР УРОНА")
++        title.setObjectName("section")
++        layout.addWidget(title)
++
++        # Формула
++        formula_row = QHBoxLayout()
++        formula_row.addWidget(QLabel("Формула:"))
++        self.formula_input = QLineEdit("1d8+3")
++        self.formula_input.setObjectName("sourceEditor")
++        formula_row.addWidget(self.formula_input, 1)
++        self.roll_button = QPushButton("БРОСК")
++        self.roll_button.setObjectName("primary")
++        self.roll_button.clicked.connect(self.roll)
++        formula_row.addWidget(self.roll_button)
++        layout.addLayout(formula_row)
++
++        # Контекст (кто бьёт, кто получает)
++        context_row = QHBoxLayout()
++        context_row.addWidget(QLabel("Атакующий:"))
++        self.attacker_input = QLineEdit("")
++        self.attacker_input.setPlaceholderText("Имя бьющего")
++        context_row.addWidget(self.attacker_input)
++        context_row.addWidget(QLabel("Цель:"))
++        self.target_input = QLineEdit("")
++        self.target_input.setPlaceholderText("Имя цели")
++        context_row.addWidget(self.target_input)
++        layout.addLayout(context_row)
++
++        # Модификаторы
++        mod_row = QHBoxLayout()
++        mod_row.addWidget(QLabel("Бонус атаки:"))
++        self.attack_bonus_spin = QSpinBox()
++        self.attack_bonus_spin.setRange(-20, 40)
++        self.attack_bonus_spin.setValue(0)
++        self.attack_bonus_spin.setSuffix("+")
++        mod_row.addWidget(self.attack_bonus_spin)
++        mod_row.addWidget(QLabel("Оборона (КД цели):"))
++        self.ac_spin = QSpinBox()
++        self.ac_spin.setRange(0, 99)
++        self.ac_spin.setValue(10)
++        mod_row.addWidget(self.ac_spin)
++        layout.addLayout(mod_row)
++
++        # Критический бросок (настройка)
++        crit_row = QHBoxLayout()
++        crit_row.addWidget(QLabel("Крит c 20:"))
++        self.crit_checkbox = QComboBox()
++        self.crit_checkbox.addItems(["Обычный (20 = крит)", "Всегда крит", "Никогда"])
++        crit_row.addWidget(self.crit_checkbox)
++        layout.addLayout(crit_row)
++
++        # Результат
++        self.result_label = QLabel("Результат: —")
++        self.result_label.setWordWrap(True)
++        self.result_label.setStyleSheet("font-family: Georgia; font-size: 15px; color: #f0e4d8; padding: 8px; background: #1a1414; border: 1px solid #3a3030;")
++        layout.addWidget(self.result_label)
++
++        # История бросков
++        history_row = QHBoxLayout()
++        history_row.addWidget(QLabel("История:"))
++        history_row.addStretch()
++        layout.addLayout(history_row)
++        self.history_list = QListWidget()
++        self.history_list.setMaximumHeight(120)
++        layout.addWidget(self.history_list, 1)
++
++        # Кнопка очистки
++        clear_row = QHBoxLayout()
++        clear_row.addStretch()
++        clear_button = QPushButton("Очистить историю")
++        clear_button.clicked.connect(self.clear_history)
++        clear_row.addWidget(clear_button)
++        layout.addLayout(clear_row)
++
++    def roll(self) -> None:
++        formula = self.formula_input.text().strip()
++        if not formula:
++            self.result_label.setText("Ошибка: введите формулу")
++            return
++        try:
++            result = self.engine.roll(formula)
++            attack_bonus = self.attack_bonus_spin.value()
++            ac = self.ac_spin.value()
++            total = result.total + attack_bonus
++            hit = total >= ac
++
++            # Критический бросок
++            is_crit = False
++            is_fumble = False
++            if self.crit_checkbox.currentIndex() == 0:
++                # Обычный: проверяем по последнему кубу d20
++                dice = result.parts
++                if dice and len(dice) > 0:
++                    last_die = dice[-1]
++                    # Проверяем, является ли последний куб d20
++                    if "d20" in formula.lower() or ("1d20" in formula.lower()):
++                        if last_die == 20:
++                            is_crit = True
++                        elif last_die == 1:
++                            is_fumble = True
++            elif self.crit_checkbox.currentIndex() == 1:
++                is_crit = True
++            # Индекс 2 — никогда не крити
++
++            # Подсветка результата
++            if is_crit:
++                self.result_label.setStyleSheet(
++                    "font-family: Georgia; font-size: 15px; color: #ff6b6b; padding: 8px; "
++                    "background: #2a1a1a; border: 1px solid #ff4444;"
++                )
++                result_text = f"🎲 КРИТИЧЕСКИЙ УДАР!\n{self.attacker_input.text() or 'Атакующий'} → {self.target_input.text() or 'Цель'}\n"
++                result_text += f"Формула: {formula} = {result.total} + {attack_bonus:+d} = {total}\n"
++                result_text += f"КД цели: {ac} → ПОПАДАНИЕ!\n"
++                result_text += f"Кубы: {result.parts} (последний d20 = 20!)"
++            elif hit:
++                self.result_label.setStyleSheet(
++                    "font-family: Georgia; font-size: 15px; color: #a8d5a2; padding: 8px; "
++                    "background: #1a2a1a; border: 1px solid #4a8a4a;"
++                )
++                result_text = f"✅ ПОПАДАНИЕ\n{self.attacker_input.text() or 'Атакующий'} → {self.target_input.text() or 'Цель'}\n"
++                result_text += f"Формула: {formula} = {result.total} + {attack_bonus:+d} = {total}\n"
++                result_text += f"КД цели: {ac} → попадает!"
++            else:
++                # Проверяем на критический промах (1 на d20)
++                is_fumble = False
++                if self.crit_checkbox.currentIndex() == 0:
++                    if "d20" in formula.lower() or "1d20" in formula.lower():
++                        dice = result.parts
++                        if dice and dice[-1] == 1:
++                            is_fumble = True
++
++                if is_fumble:
++                    self.result_label.setStyleSheet(
++                        "font-family: Georgia; font-size: 15px; color: #ff9999; padding: 8px; "
++                        "background: #2a1a1a; border: 1px solid #cc4444;"
++                    )
++                    result_text = f"💥 КРИТИЧЕСКИЙ ПРОМАХ!\n{self.attacker_input.text() or 'Атакующий'} → {self.target_input.text() or 'Цель'}\n"
++                    result_text += f"Формула: {formula} = {result.total} + {attack_bonus:+d} = {total}\n"
++                    result_text += f"КД цели: {ac} → промах! (1 на кубе d20)"
++                else:
++                    self.result_label.setStyleSheet(
++                        "font-family: Georgia; font-size: 15px; color: #ffb3b3; padding: 8px; "
++                        "background: #2a1a1a; border: 1px solid #6a3a3a;"
++                    )
++                    result_text = f"❌ ПРОМАХ\n{self.attacker_input.text() or 'Атакующий'} → {self.target_input.text() or 'Цель'}\n"
++                    result_text += f"Формула: {formula} = {result.total} + {attack_bonus:+d} = {total}\n"
++                    result_text += f"КД цели: {ac} → не попадает (нужно {ac}, получено {total})"
++
++            self.result_label.setText(result_text)
++            self._results.insert(0, f"{formula} = {result.total} + {attack_bonus:+d} → {'ПОПАДАНИЕ' if hit else 'ПРОМАХ'}")
++            self.history_list.clear()
++            self.history_list.addItems(self._results[:20])
++            self.calculated.emit(result_text)
++
++        except RuleError as e:
++            self.result_label.setText(f"Ошибка формулы: {e}")
++            self.result_label.setStyleSheet("font-family: Georgia; color: #ff6666; padding: 8px; background: #2a1a1a; border: 1px solid #663333;")
++
++    def clear_history(self) -> None:
++        self._results.clear()
++        self.history_list.clear()
++        self.result_label.setText("Результат: —")
++        self.result_label.setStyleSheet("font-family: Georgia; font-size: 15px; color: #f0e4d8; padding: 8px; background: #1a1414; border: 1px solid #3a3030;")
++
++
++class SaveDCcalculator(QWidget):
++    """Калькулятор спасбросков: DC, характеристика, урон/лечение, половина урона."""
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.engine = BattleEngine.__new__(BattleEngine)
++        self.engine.randint = self._randint
++        self._results: list[str] = []
++        self.init_ui()
++
++    def _randint(self, low: int, high: int) -> int:
++        import random
++        return random.randint(low, high)
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        title = QLabel("КАЛЬКУЛЯТОР СПАСБРОСКОВ / DC")
++        title.setObjectName("section")
++        layout.addWidget(title)
++
++        # DC и характеристика
++        dc_row = QHBoxLayout()
++        dc_row.addWidget(QLabel("Сл (DC):"))
++        self.dc_spin = QSpinBox()
++        self.dc_spin.setRange(0, 40)
++        self.dc_spin.setValue(15)
++        dc_row.addWidget(self.dc_spin)
++        dc_row.addWidget(QLabel("Характеристика:"))
++        self.ability_combo = QComboBox()
++        for key, name in ABILITY_NAMES.items():
++            self.ability_combo.addItem(name, key)
++        dc_row.addWidget(self.ability_combo)
++        dc_row.addWidget(QLabel("Модификатор:"))
++        self.ability_mod_spin = QSpinBox()
++        self.ability_mod_spin.setRange(-10, 20)
++        self.ability_mod_spin.setValue(0)
++        dc_row.addWidget(self.ability_mod_spin)
++        layout.addLayout(dc_row)
++
++        # Урон / лечение
++        damage_row = QHBoxLayout()
++        damage_row.addWidget(QLabel("Урон (формула):"))
++        self.damage_formula = QLineEdit("2d6")
++        damage_row.addWidget(self.damage_formula, 1)
++        damage_row.addWidget(QLabel("Половина урона при успехе:"))
++        self.half_checkbox = QComboBox()
++        self.half_checkbox.addItems(["Нет", "Да"])
++        damage_row.addWidget(self.half_checkbox)
++        layout.addLayout(damage_row)
++
++        # Роль (атакующий/защищающийся)
++        role_row = QHBoxLayout()
++        role_row.addWidget(QLabel("Роль:"))
++        self.role_combo = QComboBox()
++        self.role_combo.addItems(["Защищающийся (спасбросок)", "Атакующий (назначает DC)"])
++        role_row.addWidget(self.role_combo)
++        layout.addLayout(role_row)
++
++        # Имя участников
++        name_row = QHBoxLayout()
++        name_row.addWidget(QLabel("Защищающийся:"))
++        self.saving_name = QLineEdit("")
++        name_row.addWidget(self.saving_name)
++        name_row.addWidget(QLabel("Назначающий DC:"))
++        self.dc_name = QLineEdit("")
++        name_row.addWidget(self.dc_name)
++        layout.addLayout(name_row)
++
++        # Кнопки
++        button_row = QHBoxLayout()
++        self.roll_button = QPushButton("БРОСК СПАСБРОСКА")
++        self.roll_button.setObjectName("primary")
++        self.roll_button.clicked.connect(self.roll)
++        button_row.addWidget(self.roll_button)
++
++        self.calculate_dc_button = QPushButton("РАСЧЁТ DC")
++        self.calculate_dc_button.clicked.connect(self.calculate_dc)
++        button_row.addWidget(self.calculate_dc_button)
++
++        layout.addLayout(button_row)
++
++        # Результат
++        self.result_label = QLabel("Результат: —")
++        self.result_label.setWordWrap(True)
++        self.result_label.setStyleSheet("font-family: Georgia; font-size: 14px; padding: 8px; background: #1a1414; border: 1px solid #3a3030;")
++        layout.addWidget(self.result_label)
++
++    def roll(self) -> None:
++        dc = self.dc_spin.value()
++        ability = self.ability_combo.currentData()
++        mod = self.ability_mod_spin.value()
++        damage_formula = self.damage_formula.text().strip()
++        half_on_success = self.half_checkbox.currentIndex() == 1
++        role = self.role_combo.currentIndex()
++
++        try:
++            # Бросок спасброска
++            total, dice, natural = self.engine.d20(mod)
++
++            # Проверка успеха (меньше DC = успех)
++            success = total < dc
++
++            # Урон
++            if damage_formula:
++                damage_roll = self.engine.roll(damage_formula)
++                if half_on_success and success:
++                    damage = damage_roll.total // 2
++                    damage_text = f"{damage_roll.total} / 2 = {damage}"
++                else:
++                    damage = damage_roll.total
++                    damage_text = str(damage)
++            else:
++                damage = 0
++                damage_text = "нет урона"
++
++            # Формирование результата
++            if role == 0:  # Защищающийся
++                if success:
++                    result_text = (
++                        f"🛡️ СПАСБРОСКА УСПЕШНА\n"
++                        f"{self.saving_name.text() or 'Защищающийся'} бросает {ABILITY_NAMES.get(ability, ability)}:\n"
++                        f"{dice[0]} + {mod:+d} = {total} (нужно < {dc})\n"
++                        f"→ Успех! Урон: {damage_text}"
++                    )
++                    self.result_label.setStyleSheet(
++                        "font-family: Georgia; font-size: 14px; color: #a8d5a2; padding: 8px; "
++                        "background: #1a2a1a; border: 1px solid #4a8a4a;"
++                    )
++                else:
++                    result_text = (
++                        f"💢 СПАСБРОСКА НЕУСПЕШНА\n"
++                        f"{self.saving_name.text() or 'Защищающийся'} бросает {ABILITY_NAMES.get(ability, ability)}:\n"
++                        f"{dice[0]} + {mod:+d} = {total} (нужно < {dc})\n"
++                        f"→ Неудача! Урон: {damage_text}"
++                    )
++                    self.result_label.setStyleSheet(
++                        "font-family: Georgia; font-size: 14px; color: #ffb3b3; padding: 8px; "
++                        "background: #2a1a1a; border: 1px solid #6a3a3a;"
++                    )
++            else:  # Атакующий
++                result_text = (
++                    f"📊 РАСЧЁТ DC\n"
++                    f"{self.dc_name.text() or 'Атакующий'} назначает DC {dc}\n"
++                    f"Характеристика {ABILITY_NAMES.get(ability, ability)} цели: {mod:+d}\n"
++                    f"Для успеха нужно: {dc - mod} или меньше"
++                )
++                self.result_label.setStyleSheet(
++                    "font-family: Georgia; font-size: 14px; color: #f0e4d8; padding: 8px; "
++                    "background: #1a1414; border: 1px solid #3a3030;"
++                )
++
++            self.result_label.setText(result_text)
++            self._results.insert(0, result_text[:200])
++            # Здесь можно добавить историю
++
++        except RuleError as e:
++            self.result_label.setText(f"Ошибка: {e}")
++            self.result_label.setStyleSheet("font-family: Georgia; color: #ff6666; padding: 8px; background: #2a1a1a; border: 1px solid #663333;")
++
++    def calculate_dc(self) -> None:
++        """Расчёт DC по формуле: 8 + профик + модификатор."""
++        mod = self.ability_mod_spin.value()
++        dc = 8 + mod  # упрощённо, обычно 8 + профик + мод
++        self.dc_spin.setValue(dc)
++        self.result_label.setText(f"DC рассчитан: 8 + {mod:+d} = {dc}")
++        self.result_label.setStyleSheet("font-family: Georgia; font-size: 14px; color: #f0e4d8; padding: 8px; background: #1a1414; border: 1px solid #3a3030;")
++
++
++class ACComparison(QWidget):
++    """Сравнение КД: кто имеет преимущество, насколько сложно попасть."""
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.init_ui()
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        title = QLabel("СРАВНЕНИЕ КД")
++        title.setObjectName("section")
++        layout.addWidget(title)
++
++        # Два КД для сравнения
++        row1 = QHBoxLayout()
++        row1.addWidget(QLabel("КД защищающегося:"))
++        self.ac_defender = QSpinBox()
++        self.ac_defender.setRange(0, 99)
++        self.ac_defender.setValue(10)
++        row1.addWidget(self.ac_defender)
++
++        row1.addWidget(QLabel("КД нападающего:"))
++        self.ac_attacker = QSpinBox()
++        self.ac_attacker.setRange(0, 99)
++        self.ac_attacker.setValue(0)
++        row1.addWidget(self.ac_attacker)
++        layout.addLayout(row1)
++
++        # Преимущества/недостатки
++        adv_row = QHBoxLayout()
++        adv_row.addWidget(QLabel("Преим. нападающего:"))
++        self.attacker_adv = QComboBox()
++        self.attacker_adv.addItems(["Нет", "Преимущество (+)", "Недостаток (-)"])
++        adv_row.addWidget(self.attacker_adv)
++
++        adv_row.addWidget(QLabel("Преим. защищающегося:"))
++        self.defender_adv = QComboBox()
++        self.defender_adv.addItems(["Нет", "Преимущество (+)", "Недостаток (-)"])
++        adv_row.addWidget(self.defender_adv)
++        layout.addLayout(adv_row)
++
++        # Бонусы/пенальти
++        bonus_row = QHBoxLayout()
++        bonus_row.addWidget(QLabel("Бонус нападающего:"))
++        self.attacker_bonus = QSpinBox()
++        self.attacker_bonus.setRange(-10, 20)
++        self.attacker_bonus.setValue(0)
++        bonus_row.addWidget(self.attacker_bonus)
++
++        bonus_row.addWidget(QLabel("Пенальти защит.:"))
++        self.defender_penalty = QSpinBox()
++        self.defender_penalty.setRange(-10, 10)
++        self.defender_penalty.setValue(0)
++        bonus_row.addWidget(self.defender_penalty)
++        layout.addLayout(bonus_row)
++
++        # Результат
++        self.result_label = QLabel("Результат: —")
++        self.result_label.setWordWrap(True)
++        self.result_label.setStyleSheet("font-family: Georgia; font-size: 14px; padding: 8px; background: #1a1414; border: 1px solid #3a3030;")
++        layout.addWidget(self.result_label)
++
++        # Вероятность попадания (примерная)
++        prob_row = QHBoxLayout()
++        prob_row.addWidget(QLabel("Примерная вероятность попадания (d20):"))
++        self.probability_label = QLabel("—")
++        self.probability_label.setStyleSheet("font-family: Georgia; font-size: 14px; color: #d98c4e;")
++        prob_row.addWidget(self.probability_label, 1)
++        layout.addLayout(prob_row)
++
++        # Кнопка расчёта
++        calc_button = QPushButton("РАССЧИТАТЬ")
++        calc_button.setObjectName("primary")
++        calc_button.clicked.connect(self.calculate)
++        layout.addWidget(calc_button)
++
++    def calculate(self) -> None:
++        ac_def = self.ac_defender.value()
++        ac_att = self.ac_attacker.value()
++        att_adv = self.attacker_adv.currentIndex()  # 0=нет, 1=преим, 2=недост
++        def_adv = self.defender_adv.currentIndex()
++        att_bonus = self.attacker_bonus.value()
++        def_penalty = self.defender_penalty.value()
++
++        effective_ac = ac_def + def_penalty
++        effective_attack = ac_att + att_bonus
++
++        # Учёт преимуществ
++        if att_adv == 1:
++            effective_attack += 2  # упрощённо: преимущество = +2 к эффективному КД
++        elif att_adv == 2:
++            effective_attack -= 2
++
++        if def_adv == 1:
++            effective_ac += 2
++        elif def_adv == 2:
++            effective_ac -= 2
++
++        # Сравнение
++        diff = effective_attack - effective_ac
++
++        if diff > 0:
++            result_text = (
++                f"✅ Нападающий имеет преимущество на {diff} пункк(ов)\n"
++                f"Эффективное КД нападающего: {effective_attack}\n"
++                f"Эффективное КД защит.: {effective_ac}\n"
++                f"Разница: +{diff}"
++            )
++            self.result_label.setStyleSheet(
++                "font-family: Georgia; font-size: 14px; color: #a8d5a2; padding: 8px; "
++                "background: #1a2a1a; border: 1px solid #4a8a4a;"
++            )
++        elif diff < 0:
++            result_text = (
++                f"❌ Защит. имеет преимущество на {-diff} пункк(ов)\n"
++                f"Эффективное КД нападающего: {effective_attack}\n"
++                f"Эффективное КД защит.: {effective_ac}\n"
++                f"Разница: {diff}"
++            )
++            self.result_label.setStyleSheet(
++                "font-family: Georgia; font-size: 14px; color: #ffb3b3; padding: 8px; "
++                "background: #2a1a1a; border: 1px solid #6a3a3a;"
++            )
++        else:
++            result_text = (
++                f"⚖️  КД равны!\n"
++                f"Эффективное КД нападающего: {effective_attack}\n"
++                f"Эффективное КД защит.: {effective_ac}\n"
++                f"Ничья — 50/50"
++            )
++            self.result_label.setStyleSheet(
++                "font-family: Georgia; font-size: 14px; color: #d98c4e; padding: 8px; "
++                "background: #2a2520; border: 1px solid #8a6a3a;"
++            )
++
++        self.result_label.setText(result_text)
++
++        # Примерная вероятность (упрощённо: (21 - |diff|) / 20 * 100%)
++        if diff > 0:
++            prob = (21 - diff) / 20 * 100
++        elif diff < 0:
++            prob = (21 + diff) / 20 * 100  # diff negative, so 21 + diff = 21 - |diff|
++        else:
++            prob = 50
++
++        self.probability_label.setText(f"{max(0, min(100, prob)):.0f}%")
++
++
++class InitiativeTracker(QWidget):
++    """Отслеживание инициативы: очередь участников, бросок, текущий ход."""
++
++    turn_changed = Signal(str)  # id участника
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.engine = BattleEngine.__new__(BattleEngine)
++        self.engine.randint = self._randint
++        self.participants: list[dict] = []
++        self.current_index = -1
++        self.init_ui()
++
++    def _randint(self, low: int, high: int) -> int:
++        import random
++        return random.randint(low, high)
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        title = QLabel("ОЧЕРЕДЬ ИНИЦИАТИВЫ")
++        title.setObjectName("section")
++        layout.addWidget(title)
++
++        # Список участников
++        self.list_label = QLabel("Участники (выберите и бросьте инициативу):")
++        self.list_label.setObjectName("muted")
++        layout.addWidget(self.list_label)
++
++        self.participant_list = QListWidget()
++        self.participant_list.setMinimumHeight(150)
++        self.participant_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
++        layout.addWidget(self.participant_list, 1)
++
++        # Кнопки
++        button_row = QHBoxLayout()
++        add_button = QPushButton("＋ Добавить")
++        add_button.clicked.connect(self.add_participant)
++        button_row.addWidget(add_button)
++
++        remove_button = QPushButton("✕ Удалить")
++        remove_button.clicked.connect(self.remove_participant)
++        button_row.addWidget(remove_button)
++
++        roll_button = QPushButton("🎲 БРОСОК ИНИЦИАТИВЫ")
++        roll_button.setObjectName("primary")
++        roll_button.clicked.connect(self.roll_initiative)
++        button_row.addWidget(roll_button)
++
++        next_button = QPushButton("Следующий ход ▶")
++        next_button.clicked.connect(self.next_turn)
++        button_row.addWidget(next_button)
++
++        reset_button = QPushButton("Сброс")
++        reset_button.clicked.connect(self.reset)
++        button_row.addWidget(reset_button)
++
++        button_row.addStretch()
++        layout.addLayout(button_row)
++
++        # Текущий ход
++        current_row = QHBoxLayout()
++        current_row.addWidget(QLabel("Текущий ход:"))
++        self.current_turn_label = QLabel("—")
++        self.current_turn_label.setStyleSheet("font-family: Georgia; font-size: 16px; font-weight: 700; color: #d98c4e;")
++        current_row.addWidget(self.current_turn_label, 1)
++        layout.addLayout(current_row)
++
++        # Список очереди
++        queue_label = QLabel("Очередь (по порядку):")
++        queue_label.setObjectName("muted")
++        layout.addWidget(queue_label)
++
++        self.queue_list = QListWidget()
++        self.queue_list.setMinimumHeight(100)
++        layout.addWidget(self.queue_list, 1)
++
++    def add_participant(self) -> None:
++        from PySide6.QtWidgets import QInputDialog
++        name, ok = QInputDialog.getText(self, "Новый участник", "Имя участника:")
++        if ok and name.strip():
++            bonus, ok2 = QInputDialog.getInt(self, "Бонус инициативы", "Бонус инициативы:", 0, -10, 20)
++            if ok2:
++                self.participants.append({
++                    "id": f"p-{len(self.participants)}",
++                    "name": name.strip(),
++                    "bonus": bonus,
++                    "initiative": None,
++                })
++                self.refresh_list()
++                self.refresh_queue()
++
++    def remove_participant(self) -> None:
++        row = self.participant_list.currentRow()
++        if row >= 0 and row < len(self.participants):
++            self.participants.pop(row)
++            if self.current_index >= len(self.participants):
++                self.current_index = -1
++            self.refresh_list()
++            self.refresh_queue()
++            self.current_turn_label.setText("—")
++
++    def refresh_list(self) -> None:
++        self.participant_list.clear()
++        for p in self.participants:
++            bonus_text = f" (+{p['bonus']})" if p['bonus'] > 0 else f" ({p['bonus']})" if p['bonus'] < 0 else ""
++            init_text = f" [{p['initiative']}]" if p['initiative'] is not None else ""
++            self.participant_list.addItem(f"{p['name']}{bonus_text}{init_text}")
++
++    def refresh_queue(self) -> None:
++        self.queue_list.clear()
++        if not self.participants:
++            return
++        sorted_parts = sorted(self.participants, key=lambda p: (p['initiative'] or 0, p['bonus']), reverse=True)
++        current_name = None
++        if self.current_index >= 0 and self.current_index < len(sorted_parts):
++            current_name = sorted_parts[self.current_index]['name']
++        for i, p in enumerate(sorted_parts):
++            marker = " ▶ " if p['name'] == current_name else "   "
++            self.queue_list.addItem(f"{marker}{i+1}. {p['name']} — иниц. {p['initiative']} (бонус {p['bonus']:+d})")
++
++    def roll_initiative(self) -> None:
++        if not self.participants:
++            return
++        current = self.participant_list.currentRow()
++        if current >= 0:
++            # Бросок для выбранного
++            p = self.participants[current]
++            total, dice, natural = self.engine.d20(p['bonus'])
++            p['initiative'] = total
++            self.participant_list.clear()
++            for pp in self.participants:
++                bonus_text = f" (+{pp['bonus']})" if pp['bonus'] > 0 else f" ({pp['bonus']})" if pp['bonus'] < 0 else ""
++                init_text = f" [{pp['initiative']}]" if pp['initiative'] is not None else ""
++                is_current = pp['id'] == p['id']
++                marker = " ▶ " if is_current else "   "
++                self.participant_list.addItem(f"{marker}{pp['name']}{bonus_text}{init_text}")
++            self.refresh_queue()
++            # Устанавливаем текущий ход
++            self.current_index = current
++            self.current_turn_label.setText(f"▶ {p['name']} (иниц. {total})")
++            self.turn_changed.emit(p['id'])
++        else:
++            # Бросок для всех
++            for p in self.participants:
++                total, dice, natural = self.engine.d20(p['bonus'])
++                p['initiative'] = total
++            self.refresh_list()
++            self.refresh_queue()
++            # Сортируем и устанавливаем первого
++            sorted_parts = sorted(self.participants, key=lambda p: (p['initiative'] or 0, p['bonus']), reverse=True)
++            if sorted_parts:
++                self.current_index = 0
++                self.current_turn_label.setText(f"▶ {sorted_parts[0]['name']} (иниц. {sorted_parts[0]['initiative']})")
++                self.turn_changed.emit(sorted_parts[0]['id'])
++
++    def next_turn(self) -> None:
++        if not self.participants or self.current_index < 0:
++            return
++        sorted_parts = sorted(self.participants, key=lambda p: (p['initiative'] or 0, p['bonus']), reverse=True)
++        self.current_index = (self.current_index + 1) % len(sorted_parts)
++        current = sorted_parts[self.current_index]
++        self.current_turn_label.setText(f"▶ {current['name']} (иниц. {current['initiative']})")
++        self.refresh_queue()
++        self.turn_changed.emit(current['id'])
++
++    def reset(self) -> None:
++        for p in self.participants:
++            p['initiative'] = None
++        self.current_index = -1
++        self.current_turn_label.setText("—")
++        self.refresh_list()
++        self.refresh_queue()
+diff --git a/dragon_saga/dd_stress.py b/dragon_saga/dd_stress.py
+new file mode 100644
+index 0000000..61f2150
+--- /dev/null
++++ b/dragon_saga/dd_stress.py
+@@ -0,0 +1,662 @@
++"""
++Darkest Dungeon-стиль боя — очередь, позиции (фронт/тыл), стресс, критические удары.
++
++Заглушка. Позже:
++- Позиции: фронт, тыл, flanked, под ударами.
++- Стресс: накопление стресса от событий боя, внезапная смерть, безнадёжность.
++- Крит: критические удары и критические промахи с эффектами (например, ранение, помешательство).
++- Очередь действий: враги и герои действуют по очереди, можно перемещаться между позициями.
++
++Файл использует структуры из models.py (Combatant, Action, Resource) для совместимости.
++Позже будет расширен для работы с бросками из rules.py.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from enum import Enum
++from uuid import uuid4
++from typing import Any
++
++from PySide6.QtCore import Qt, Signal
++from PySide6.QtGui import QPainter, QColor, QPen, QFont
++from PySide6.QtWidgets import (
++    QFrame,
++    QHBoxLayout,
++    QLabel,
++    QPushButton,
++    QVBoxLayout,
++    QWidget,
++)
++
++from .models import Combatant
++
++
++def uid(prefix: str) -> str:
++    return f"{prefix}-{uuid4().hex[:12]}"
++
++
++class Position(Enum):
++    FRONT = "фронт"
++    REAR = "тыл"
++    FLANKED = "окружённый"
++
++
++class StressLevel(Enum):
++    CALM = "спокоен"
++    STRESSED = "напряжён"
++    TRAUMATIZED = "травмо́ван"
++    BROKEN = "сломлен"
++
++
++class CriticalEffect(Enum):
++    NONE = "обычный"
++    HIT_CRIT = "крит. удар"
++    MISS_CRIT = "крит. промах"
++    STUN = "оглушение"
++    BLEED = "кровотечение"
++    FEAR = "страх"
++
++
++@dataclass
++class DDParticipant:
++    """Участник в DD-бою. Связан с Combatant, но содержит DD-специфичные поля."""
++
++    id: str = field(default_factory=lambda: uid("ddpart"))
++    combatant_id: str = ""  # ссылка на Combatant
++    name: str = "Участник"
++    side: str = "hero"
++    position: Position = Position.FRONT
++    hp: int = 10
++    max_hp: int = 10
++    stress: int = 0  # 0-100, позже — пороговые эффекты
++    stress_level: StressLevel = StressLevel.CALM
++    crit_count: int = 0  # количество критов за бой (для статистики)
++    crit_effects: list[CriticalEffect] = field(default_factory=list)
++    conditions: list[str] = field(default_factory=list)
++    actions_left: int = 1  # сколько действий осталось за ход
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "id": self.id,
++            "combatant_id": self.combatant_id,
++            "name": self.name,
++            "side": self.side,
++            "position": self.position.value,
++            "hp": self.hp,
++            "max_hp": self.max_hp,
++            "stress": self.stress,
++            "stress_level": self.stress_level.value,
++            "crit_count": self.crit_count,
++            "crit_effects": [e.value for e in self.crit_effects],
++            "conditions": self.conditions,
++            "actions_left": self.actions_left,
++        }
++
++    @classmethod
++    def from_dict(cls, data: dict[str, Any]) -> "DDParticipant":
++        pos_val = data.get("position", Position.FRONT.value)
++        try:
++            pos = Position(pos_val)
++        except ValueError:
++            pos = Position.FRONT
++        stress_val = data.get("stress_level", StressLevel.CALM.value)
++        try:
++            stress_level = StressLevel(stress_val)
++        except ValueError:
++            stress_level = StressLevel.CALM
++        return cls(
++            id=data.get("id", ""),
++            combatant_id=data.get("combatant_id", ""),
++            name=data.get("name", "Участник"),
++            side=data.get("side", "hero"),
++            position=pos,
++            hp=data.get("hp", 10),
++            max_hp=data.get("max_hp", 10),
++            stress=data.get("stress", 0),
++            stress_level=stress_level,
++            crit_count=data.get("crit_count", 0),
++            crit_effects=[CriticalEffect(e) for e in data.get("crit_effects", [])],
++            conditions=data.get("conditions", []),
++            actions_left=data.get("actions_left", 1),
++        )
++
++
++@dataclass
++class DDCombatRound:
++    """Ход в DD-бою — очередь участников и результат."""
++
++    participants: list[DDParticipant] = field(default_factory=list)
++    current_index: int = 0
++    log: list[str] = field(default_factory=list)
++
++    def current(self) -> DDParticipant | None:
++        if not self.participants or self.current_index >= len(self.participants):
++            return None
++        return self.participants[self.current_index]
++
++    def next(self) -> None:
++        if not self.participants:
++            return
++        self.current_index = (self.current_index + 1) % len(self.participants)
++        self.log.append(f"Ход переходит к {self.participants[self.current_index].name}")
++
++
++class DDRoundPanel(QWidget):
++    """Панель текущего хода в DD-стиле. Заглушка — позже будет очередь с перетаскиванием."""
++
++    action_requested = Signal(str, str)  # participant_id, action_name
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.round = DDCombatRound()
++        self.current_participant = None
++        self.init_ui()
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        title = QLabel("РАУНД В СТИЛЕ DARKEST DUNGEON · заглушка")
++        title.setObjectName("eyebrow")
++        layout.addWidget(title)
++
++        self.status_label = QLabel("Ожидание участников...")
++        self.status_label.setWordWrap(True)
++        self.status_label.setObjectName("muted")
++        layout.addWidget(self.status_label)
++
++        self.current_frame = QFrame()
++        self.current_frame.setObjectName("panel")
++        current_layout = QHBoxLayout(self.current_frame)
++        current_layout.addWidget(QLabel("Текущий участник:"))
++        self.current_name = QLabel("—")
++        self.current_name.setStyleSheet("font-family: Georgia; font-weight: 700; color: #f0e4d8;")
++        current_layout.addWidget(self.current_name)
++        current_layout.addStretch()
++        layout.addWidget(self.current_frame)
++
++        self.position_label = QLabel("Позиция: —")
++        self.position_label.setObjectName("muted")
++        layout.addWidget(self.position_label)
++
++        self.stress_label = QLabel("Стресс: —")
++        self.stress_label.setObjectName("muted")
++        layout.addWidget(self.stress_label)
++
++        self.actions_label = QLabel("Действий осталось: —")
++        self.actions_label.setObjectName("muted")
++        layout.addWidget(self.actions_label)
++
++        # Кнопки действий (заглушка)
++        self.action_buttons = QHBoxLayout()
++        self.attack_button = QPushButton("Атаковать")
++        self.attack_button.setObjectName("primary")
++        self.attack_button.clicked.connect(lambda: self._request_action("атака"))
++        self.defend_button = QPushButton("Защита")
++        self.defend_button.clicked.connect(lambda: self._request_action("защита"))
++        self.magic_button = QPushButton("Магия/Сплайт")
++        self.magic_button.clicked.connect(lambda: self._request_action("магия"))
++        self.special_button = QPushButton("Особое")
++        self.special_button.clicked.connect(lambda: self._request_action("особое"))
++        self.action_buttons.addWidget(self.attack_button)
++        self.action_buttons.addWidget(self.defend_button)
++        self.action_buttons.addWidget(self.magic_button)
++        self.action_buttons.addWidget(self.special_button)
++        layout.addLayout(self.action_buttons)
++
++        self.next_button = QPushButton("Следующий участник")
++        self.next_button.clicked.connect(self.round.next)
++        layout.addWidget(self.next_button)
++
++        self.log_label = QLabel("Лог:")
++        self.log_label.setObjectName("muted")
++        layout.addWidget(self.log_label)
++        self.log_list = QListWidget()
++        self.log_list.setMaximumHeight(100)
++        layout.addWidget(self.log_list)
++
++    def _request_action(self, action_name: str) -> None:
++        if self.current_participant:
++            self.action_requested.emit(self.current_participant.id, action_name)
++            self.log_list.addItem(f"{self.current_participant.name}: {action_name}")
++
++    def set_participant(self, participant: DDParticipant | None) -> None:
++        self.current_participant = participant
++        if participant:
++            self.current_name.setText(participant.name)
++            self.position_label.setText(f"Позиция: {participant.position.value}")
++            self.stress_label.setText(f"Стресс: {participant.stress} / 100")
++            self.actions_label.setText(f"Действий осталось: {participant.actions_left}")
++            self.status_label.setText(f"Ход участника: {participant.name}")
++        else:
++            self.current_name.setText("—")
++            self.position_label.setText("Позиция: —")
++            self.stress_label.setText("Стресс: —")
++            self.actions_label.setText("Действий осталось: —")
++            self.status_label.setText("Ожидание участников...")
++
++
++class DDParticipantEditor(QDialog):
++    """Диалог редактирования участника DD-бота — редактируемые параметры."""
++
++    def __init__(self, participant: DDParticipant | None = None, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.participant = participant or DDParticipant()
++        self.setWindowTitle("Редактирование участника")
++        self.resize(480, 600)
++        self.init_ui()
++
++    def init_ui(self) -> None:
++        from PySide6.QtWidgets import QDialogButtonBox, QFormLayout, QComboBox, QCheckBox, QSpinBox
++
++        layout = QVBoxLayout(self)
++        form = QFormLayout()
++        form.setSpacing(8)
++
++        self.name_input = QLineEdit(self.participant.name)
++
++        self.side_combo = QComboBox()
++        self.side_combo.addItem("Герои", "hero")
++        self.side_combo.addItem("Враги", "enemy")
++        self.side_combo.setCurrentIndex(0 if self.participant.side == "hero" else 1)
++
++        self.position_combo = QComboBox()
++        self.position_combo.addItem("Фронт", Position.FRONT.value)
++        self.position_combo.addItem("Тыл", Position.REAR.value)
++        self.position_combo.addItem("Окружённый", Position.FLANKED.value)
++        self.position_combo.setCurrentIndex(self.position_combo.findText(self.participant.position.value))
++
++        self.hp_input = QSpinBox()
++        self.hp_input.setRange(0, 999)
++        self.hp_input.setValue(self.participant.hp)
++
++        self.max_hp_input = QSpinBox()
++        self.max_hp_input.setRange(1, 999)
++        self.max_hp_input.setValue(self.participant.max_hp)
++
++        self.stress_input = QSpinBox()
++        self.stress_input.setRange(0, 100)
++        self.stress_input.setValue(self.participant.stress)
++        self.stress_input.setSuffix(" стресса")
++
++        self.stress_level_combo = QComboBox()
++        self.stress_level_combo.addItems([s.value for s in StressLevel])
++        self.stress_level_combo.setCurrentIndex(self.stress_level_combo.findText(self.participant.stress_level.value))
++
++        self.crit_count_input = QSpinBox()
++        self.crit_count_input.setRange(0, 999)
++        self.crit_count_input.setValue(self.participant.crit_count)
++
++        self.actions_input = QSpinBox()
++        self.actions_input.setRange(0, 10)
++        self.actions_input.setValue(self.participant.actions_left)
++        self.actions_input.setSuffix(" действий")
++
++        self.conditions_input = QLineEdit(", ".join(self.participant.conditions))
++
++        for label, widget in (
++            ("Имя", self.name_input),
++            ("Сторона", self.side_combo),
++            ("Позиция", self.position_combo),
++            ("Текущие ОЗ", self.hp_input),
++            ("Максимум ОЗ", self.max_hp_input),
++            ("Стресс", self.stress_input),
++            ("Уровень стресса", self.stress_level_combo),
++            ("Критов за бой", self.crit_count_input),
++            ("Действий за ход", self.actions_input),
++            ("Состояния (через запятую)", self.conditions_input),
++        ):
++            form.addRow(label, widget)
++
++        layout.addLayout(form)
++
++        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
++        buttons.accepted.connect(self.accept)
++        buttons.rejected.connect(self.reject)
++        layout.addWidget(buttons)
++
++    def accept(self) -> None:
++        self.participant.name = self.name_input.text().strip() or self.participant.name
++        self.participant.side = self.side_combo.currentData()
++        pos_val = self.position_combo.currentText()
++        try:
++            self.participant.position = Position(pos_val)
++        except ValueError:
++            self.participant.position = Position.FRONT
++        self.participant.hp = self.hp_input.value()
++        self.participant.max_hp = self.max_hp_input.value()
++        if self.participant.hp > self.participant.max_hp:
++            self.participant.hp = self.participant.max_hp
++        self.participant.stress = self.stress_input.value()
++        stress_val = self.stress_level_combo.currentText()
++        try:
++            self.participant.stress_level = StressLevel(stress_val)
++        except ValueError:
++            self.participant.stress_level = StressLevel.CALM
++        self.participant.crit_count = self.crit_count_input.value()
++        self.participant.actions_left = self.actions_input.value()
++        self.participant.conditions = [x.strip() for x in self.conditions_input.text().split(",") if x.strip()]
++        super().accept()
++
++
++class DDBattleStage(QWidget):
++    """Экран DD-стиля — заглушка. Позже — позиции, стресс, крит, очередь."""
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.battle = DDCombatRound()
++        self.participants: list[DDParticipant] = []
++        self.init_ui()
++        self.init_participants()
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        title = QLabel("БОЙ В СТИЛЕ DARKEST DUNGEON · заглушка")
++        title.setObjectName("title")
++        layout.addWidget(title)
++
++        desc = QLabel(
++            "Это заглушка режима Darkest Dungeon.\n"
++            "Позже здесь будут:\n"
++            "- Позиции: фронт / тыл / окружённый.\n"
++            "- Стресс: накопление стресса и пороговые эффекты (безнадёжность, внезапная смерть).\n"
++            "- Критические удары и критические промахи с эффектами.\n"
++            "- Очередь участников с перемещением между позициями.\n"
++            "\n"
++            "Пока — заглушка с понятным интерфейсом. Редактируй DDParticipant "
++            "и DDRoundPanel для настройки механик."
++        )
++        desc.setWordWrap(True)
++        desc.setObjectName("muted")
++        layout.addWidget(desc)
++
++        # Позиции (редактируемые)
++        position_label = QLabel("Позиции участников (редактируемые):")
++        position_label.setObjectName("muted")
++        layout.addWidget(position_label)
++
++        self.position_frame = QFrame()
++        self.position_frame.setObjectName("panel")
++        pos_layout = QHBoxLayout(self.position_frame)
++
++        pos_left = QVBoxLayout()
++        pos_left.addWidget(QLabel("Участники фронта"))
++        self.front_list = QListWidget()
++        self.front_list.setMaximumHeight(60)
++        pos_left.addWidget(self.front_list)
++        pos_left.addStretch()
++
++        pos_right = QVBoxLayout()
++        pos_right.addWidget(QLabel("Участники тыла"))
++        self.rear_list = QListWidget()
++        self.rear_list.setMaximumHeight(60)
++        pos_right.addWidget(self.rear_list)
++        pos_right.addStretch()
++
++        pos_layout.addLayout(pos_left, 1)
++        pos_layout.addLayout(pos_right, 1)
++        layout.addWidget(self.position_frame)
++
++        # Инструменты перемещения
++        move_label = QLabel("Перемещение между позициями (редактируемое):")
++        move_label.setObjectName("muted")
++        layout.addWidget(move_label)
++
++        move_row = QHBoxLayout()
++        move_to_rear = QPushButton("Переместить выбранного в тыл")
++        move_to_rear.clicked.connect(self._move_to_rear)
++        move_row.addWidget(move_to_rear)
++
++        move_to_front = QPushButton("Переместить выбранного на фронт")
++        move_to_front.clicked.connect(self._move_to_front)
++        move_row.addWidget(move_to_front)
++
++        swap_button = QPushButton("Обмен позициями (фронт ↔ тыл)")
++        swap_button.clicked.connect(self._swap_positions)
++        move_row.addWidget(swap_button)
++
++        move_row.addStretch()
++        layout.addLayout(move_row)
++
++        # Стресс и крит-эффекты (редактируемые)
++        effects_label = QLabel("Стресс и критические эффекты (редактируемые):")
++        effects_label.setObjectName("muted")
++        layout.addWidget(effects_label)
++
++        self.effects_frame = QFrame()
++        self.effects_frame.setObjectName("panel")
++        effects_layout = QHBoxLayout(self.effects_frame)
++
++        self.stress_spin = QSpinBox()
++        self.stress_spin.setRange(0, 100)
++        self.stress_spin.setValue(0)
++        self.stress_spin.setSuffix(" стресса")
++        effects_layout.addWidget(QLabel("Стресс:"))
++        effects_layout.addWidget(self.stress_spin)
++
++        self.crit_label = QLabel("Крит. эффекты (через запятую):")
++        effects_layout.addWidget(self.crit_label)
++        self.crit_effects_edit = QLineEdit("")
++        effects_layout.addWidget(self.crit_effects_edit, 1)
++        layout.addLayout(effects_layout)
++
++        # Панель текущего хода
++        self.round_panel = DDRoundPanel()
++        layout.addWidget(self.round_panel)
++
++        # Кнопки управления
++        buttons_layout = QHBoxLayout()
++        self.start_button = QPushButton("Начать раунд")
++        self.start_button.setObjectName("primary")
++        self.start_button.clicked.connect(self._start_round)
++        self.end_button = QPushButton("Завершить раунд")
++        self.end_button.clicked.connect(self._end_round)
++        buttons_layout.addWidget(self.start_button)
++        buttons_layout.addWidget(self.end_button)
++        layout.addLayout(buttons_layout)
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        title = QLabel("БОЙ В СТИЛЕ DARKEST DUNGEON · заглушка")
++        title.setObjectName("title")
++        layout.addWidget(title)
++
++        desc = QLabel(
++            "Это заглушка режима Darkest Dungeon.\n"
++            "Позже здесь будут:\n"
++            "- Позиции: фронт / тыл / окружённый.\n"
++            "- Стресс: накопление стресса и пороговые эффекты (безнадёжность, внезапная смерть).\n"
++            "- Критические удары и критические промахи с эффектами.\n"
++            "- Очередь участников с перемещением между позициями.\n"
++            "\n"
++            "Пока — заглушка с понятным интерфейсом. Редактируй DDParticipant "
++            "и DDRoundPanel для настройки механик."
++        )
++        desc.setWordWrap(True)
++        desc.setObjectName("muted")
++        layout.addWidget(desc)
++
++        # Позиции (заглушка)
++        position_label = QLabel("Позиции участников (редактируемые):")
++        position_label.setObjectName("muted")
++        layout.addWidget(position_label)
++
++        self.position_frame = QFrame()
++        self.position_frame.setObjectName("panel")
++        pos_layout = QHBoxLayout(self.position_frame)
++        self.front_label = QLabel("ФРОНТ:")
++        self.front_label.setStyleSheet("font-family: Georgia; font-weight: 700; color: #d98c4e;")
++        self.front_list = QListWidget()
++        self.front_list.setMaximumHeight(60)
++        pos_layout.addWidget(self.front_label)
++        pos_layout.addWidget(self.front_list)
++
++        self.rear_label = QLabel("ТЫЛ:")
++        self.rear_label.setStyleSheet("font-family: Georgia; font-weight: 700; color: #7a9a9a;")
++        self.rear_list = QListWidget()
++        self.rear_list.setMaximumHeight(60)
++        pos_layout.addWidget(self.rear_label)
++        pos_layout.addWidget(self.rear_list)
++        layout.addWidget(self.position_frame)
++
++        # Стресс и крит-эффекты (заглушка)
++        effects_label = QLabel("Критические эффекты и стресс (редактируемые):")
++        effects_label.setObjectName("muted")
++        layout.addWidget(effects_label)
++
++        self.effects_frame = QFrame()
++        self.effects_frame.setObjectName("panel")
++        effects_layout = QHBoxLayout(self.effects_frame)
++
++        self.stress_spin = QSpinBox()
++        self.stress_spin.setRange(0, 100)
++        self.stress_spin.setValue(0)
++        self.stress_spin.setSuffix(" стресса")
++        effects_layout.addWidget(QLabel("Стресс:"))
++        effects_layout.addWidget(self.stress_spin)
++
++        self.crit_effects_label = QLabel("Крит. эффекты:")
++        effects_layout.addWidget(self.crit_effects_label)
++        self.crit_effects_edit = QLineEdit("")
++        effects_layout.addWidget(self.crit_effects_edit)
++        layout.addLayout(effects_layout)
++
++        # Панель текущего хода
++        self.round_panel = DDRoundPanel()
++        layout.addWidget(self.round_panel)
++
++        # Кнопки управления
++        buttons_layout = QHBoxLayout()
++        self.start_button = QPushButton("Начать раунд")
++        self.start_button.setObjectName("primary")
++        self.start_button.clicked.connect(self._start_round)
++        self.end_button = QPushButton("Завершить раунд")
++        self.end_button.clicked.connect(self._end_round)
++        buttons_layout.addWidget(self.start_button)
++        buttons_layout.addWidget(self.end_button)
++        layout.addLayout(buttons_layout)
++
++    def init_participants(self) -> None:
++        """Инициализация участников. Пока заглушка — позже будет импорт из Combatant."""
++        # Создаём двух участников для примера
++        hero = DDParticipant(
++            name="Герой",
++            side="hero",
++            hp=20,
++            max_hp=20,
++            stress=0,
++            stress_level=StressLevel.CALM,
++            position=Position.FRONT,
++        )
++        enemy = DDParticipant(
++            name="Враг",
++            side="enemy",
++            hp=15,
++            max_hp=15,
++            stress=0,
++            stress_level=StressLevel.CALM,
++            position=Position.FRONT,
++        )
++        self.participants = [hero, enemy]
++        self.battle.participants = self.participants
++        self.battle.current_index = 0
++        self._refresh_positions()
++
++    def _refresh_positions(self) -> None:
++        self.front_list.clear()
++        self.rear_list.clear()
++        for p in self.participants:
++            if p.position == Position.FRONT or p.position == Position.FLANKED:
++                self.front_list.addItem(f"{p.name} · ОЗ {p.hp}/{p.max_hp} · Стресс {p.stress}")
++            else:
++                self.rear_list.addItem(f"{p.name} · ОЗ {p.hp}/{p.max_hp} · Стресс {p.stress}")
++
++    def _start_round(self) -> None:
++        if not self.battle.participants:
++            return
++        self.battle.current_index = 0
++        self.round_panel.set_participant(self.battle.current())
++        self.log_list_add(f"Раунд начался! Ход: {self.battle.current().name}")
++
++    def _end_round(self) -> None:
++        self.round_panel.set_participant(None)
++        self.log_list_add("Раунд завершён.")
++
++    def _move_to_rear(self) -> None:
++        """Переместить выбранного участника в тыл."""
++        target = self.front_list.currentItem()
++        if not target:
++            return
++        p = self._find_participant_by_name(target.text())
++        if p:
++            p.position = Position.REAR
++            self._refresh_positions()
++            self.log_list_add(f"{p.name} → ТЫЛ")
++
++    def _move_to_front(self) -> None:
++        """Переместить выбранного участника на фронт."""
++        target = self.rear_list.currentItem()
++        if not target:
++            return
++        p = self._find_participant_by_name(target.text())
++        if p:
++            p.position = Position.FRONT
++            self._refresh_positions()
++            self.log_list_add(f"{p.name} → ФРОНТ")
++
++    def _swap_positions(self) -> None:
++        """Обмен позициями между фронтом и тылом (один из каждого лагеря)."""
++        # Для заглушки: просто переместим всех фронта в тыл (демонстрация)
++        for p in self.participants:
++            if p.position == Position.FRONT:
++                p.position = Position.REAR
++            elif p.position == Position.REAR or p.position == Position.FLANKED:
++                p.position = Position.FRONT
++        self._refresh_positions()
++        self.log_list_add("Позиции обменялись: фронт ↔ тыл")
++
++    def _edit_participant(self, click_list: str) -> None:
++        """Открыть редактор участника из клика по списку."""
++        from PySide6.QtWidgets import QListWidget
++
++        # Найти участника по списку, из которого пришёл клик
++        target_name = None
++        if click_list == "front":
++            item = self.front_list.currentItem()
++        else:
++            item = self.rear_list.currentItem()
++
++        if item:
++            p = self._find_participant_by_name(item.text())
++            if p:
++                editor = DDParticipantEditor(participant=p, parent=self)
++                if editor.exec() == QDialog.DialogCode.Accepted:
++                    self._refresh_positions()
++                    self.log_list_add(f"Участник «{p.name}» отредактирован")
++
++    def _find_participant_by_name(self, text: str) -> DDParticipant | None:
++        """Найти участника по отображаемому имени в списке."""
++        for p in self.participants:
++            expected = f"{p.name} · ОЗ {p.hp}/{p.max_hp} · Стресс {p.stress}"
++            if p.name in text or expected in text:
++                return p
++        return None
++
++    def log_list_add(self, text: str) -> None:
++        if hasattr(self, "round_panel") and self.round_panel.log_list:
++            self.round_panel.log_list.addItem(text)
++        else:
++            # fallback — если round_panel ещё не инициализирован
++            pass
++
++
++# Заглушка: позже будет импорт чар и LSS-формата в DD-стиль
++# (например, чар с критическими эффектами, стрессом и позициями)
++def parse_dd_charm_from_lss(text: str) -> list[DDParticipant]:
++    """Парсит LSS-экспорт чар для DD-стиля. Пока заглушка — позже будет полноценный парсер."""
++    return []
+diff --git a/dragon_saga/lss_import.py b/dragon_saga/lss_import.py
+new file mode 100644
+index 0000000..92cc277
+--- /dev/null
++++ b/dragon_saga/lss_import.py
+@@ -0,0 +1,387 @@
++"""
++Импорт из Long Story Short (LSS).
++
++Заглушка с настройками и понятным интерфейсом.
++Позже будет полноценный парсер LSS-экспорта (JSON/XML/текст).
++
++Текущая реализация — демонстрация структуры и точек расширения.
++"""
++
++from __future__ import annotations
++
++from PySide6.QtCore import Qt
++from PySide6.QtWidgets import (
++    QComboBox,
++    QFileDialog,
++    QFrame,
++    QHBoxLayout,
++    QLabel,
++    QLineEdit,
++    QListWidget,
++    QPushButton,
++    QVBoxLayout,
++    QWidget,
++)
++
++from .models import Action, Combatant, Resource
++
++
++class LSSImportPage(QWidget):
++    """Страница импорта из LSS — заглушка с редактируемыми настройками."""
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.init_ui()
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        # Заголовок
++        title = QLabel("ИМПОРТ ИЗ LONG STORY SHORT (LSS)")
++        title.setObjectName("title")
++        layout.addWidget(title)
++
++        # Описание
++        desc = QLabel(
++            "Это заглушка импорта из Long Story Short.\n"
++            "Сейчас поддерживается ручной ввод и подготовка структуры.\n"
++            "Позже будет добавлен полноценный парсер экспорта LSS.\n\n"
++            "Редактируй настройки ниже для подготовки импорта."
++        )
++        desc.setWordWrap(True)
++        desc.setObjectName("muted")
++        layout.addWidget(desc)
++
++        # Формат ввода
++        format_row = QHBoxLayout()
++        format_label = QLabel("Формат LSS:")
++        format_label.setObjectName("muted")
++        format_row.addWidget(format_label)
++        self.format_combo = QComboBox()
++        self.format_combo.addItems(["Пока не поддерживается", "JSON (планируется)", "XML (планируется)", "Текст (ручной)"])
++        format_row.addWidget(self.format_combo, 1)
++        format_row.addStretch()
++        layout.addLayout(format_row)
++
++        # Источник
++        source_row = QHBoxLayout()
++        source_row.addWidget(QLabel("Файл LSS:"))
++        self.source_path = QLineEdit("")
++        self.source_path.setPlaceholderText("Выберите файл экспорта LSS")
++        source_row.addWidget(self.source_path)
++        browse_button = QPushButton("Обзор...")
++        browse_button.clicked.connect(self.browse_file)
++        source_row.addWidget(browse_button)
++        layout.addLayout(source_row)
++
++        # Предустановки для импорта
++        settings_label = QLabel("Предустановки импорта (редактируемые):")
++        settings_label.setObjectName("muted")
++        layout.addWidget(settings_label)
++
++        settings_frame = QFrame()
++        settings_frame.setObjectName("panel")
++        settings_layout = QVBoxLayout(settings_frame)
++
++        # Имя источника
++        name_row = QHBoxLayout()
++        name_row.addWidget(QLabel("Имя источника:"))
++        self.source_name = QLineEdit("LSS источник")
++        name_row.addWidget(self.source_name, 1)
++        settings_layout.addLayout(name_row)
++
++        # Тип импорта
++        type_row = QHBoxLayout()
++        type_row.addWidget(QLabel("Тип импорта:"))
++        self.import_type = QComboBox()
++        self.import_type.addItems(["Чар/спеллы", "МобаHOLIES", "Персонажи", "Кампания"])
++        type_row.addWidget(self.import_type, 1)
++        settings_layout.addLayout(type_row)
++
++        # Поле для ручного ввода
++        manual_row = QHBoxLayout()
++        manual_row.addWidget(QLabel("Ручной ввод (заготовка):"))
++        settings_layout.addLayout(manual_row)
++
++        self.manual_input = QLineEdit("")
++        self.manual_input.setPlaceholderText("Здесь будет поле для ввода текста из LSS...\nПока — заглушка")
++        self.manual_input.setMinimumHeight(80)
++        settings_layout.addWidget(self.manual_input)
++
++        layout.addWidget(settings_frame)
++
++        # Действия
++        actions_row = QHBoxLayout()
++        parse_button = QPushButton("РАСПАРСИТЬ")
++        parse_button.setObjectName("primary")
++        parse_button.clicked.connect(self.parse)
++        actions_row.addWidget(parse_button)
++
++        clear_button = QPushButton("Очистить")
++        clear_button.clicked.connect(self.clear_input)
++        actions_row.addWidget(clear_button)
++
++        import_button = QPushButton("ИМПОРТИРОВАТЬ В КАМПАНИЮ")
++        import_button.clicked.connect(self.import_to_campaign)
++        actions_row.addWidget(import_button)
++
++        actions_row.addStretch()
++        layout.addLayout(actions_row)
++
++        # Результат
++        self.result_label = QLabel("Результат: —")
++        self.result_label.setWordWrap(True)
++        self.result_label.setObjectName("muted")
++        layout.addWidget(self.result_label)
++
++        # Список импортированного
++        result_list_label = QLabel("Импортированные элементы:")
++        result_list_label.setObjectName("muted")
++        layout.addWidget(result_list_label)
++        self.result_list = QListWidget()
++        self.result_list.setMinimumHeight(100)
++        layout.addWidget(self.result_list, 1)
++
++    def browse_file(self) -> None:
++        from PySide6.QtWidgets import QFileDialog
++        filename, _ = QFileDialog.getOpenFileName(
++            self,
++            "Выбрать файл LSS",
++            "",
++            "Все файлы (*)"
++        )
++        if filename:
++            self.source_path.setText(filename)
++            self.result_label.setText(f"Выбран файл: {filename}")
++
++    def parse(self) -> None:
++        """Попытка распарсить входные данные. Пока заглушка — показывает структуру."""
++        manual_text = self.manual_input.text().strip()
++
++        if not manual_text:
++            self.result_label.setText("Введите данные для парсинга")
++            return
++
++        # Заглушка: показываем, что получилось бы при реальном парсинге
++        self.result_list.clear()
++        self.result_list.addItem("▶ Пока — заглушка парсера LSS")
++        self.result_list.addItem("  Реальный парсер будет:")
++        self.result_list.addItem("  - Читать файл LSS (JSON/XML/текст)")
++        self.result_list.addItem("  - Распознавать чар/спеллы/мобов")
++        self.result_list.addItem("  - Создавать объекты Action/Combatant/Resource")
++        self.result_list.addItem("  - Показывать предпросмотр перед импортом")
++
++        self.result_label.setText(
++            f"Попытка парсинга...\n"
++            f"Входные данные: {len(manual_text)} символов\n"
++            f"Формат: {self.format_combo.currentText()}"
++        )
++
++        # Если есть ручной ввод, показываем его как пример результата
++        if manual_text:
++            self.result_list.addItem(f"\nВходной текст:\n{manual_text[:200]}...")
++
++    def clear_input(self) -> None:
++        self.manual_input.clear()
++        self.source_path.clear()
++        self.result_label.setText("Результат: —")
++        self.result_list.clear()
++        self.result_list.addItem("Очищено")
++
++    def import_to_campaign(self) -> None:
++        """Импорт в текущую кампанию. Пока заглушка — показывает, что будет."""
++        self.result_list.clear()
++
++        manual_text = self.manual_input.text().strip()
++        if not manual_text:
++            self.result_label.setText("Нет данных для импорта")
++            return
++
++        self.result_list.addItem("▶ Импорт в кампанию (заглушка)")
++        self.result_list.addItem(f"  Источник: {self.source_name.text() or 'LSS источник'}")
++        self.result_list.addItem(f"  Тип: {self.import_type.currentText()}")
++        self.result_list.addItem("  ")
++        self.result_list.addItem("  Были бы созданы:")
++        self.result_list.addItem("  - Объекты Combatant для персонажей")
++        self.result_list.addItem("  - Объекты Action для чар/действий")
++        self.result_list.addItem("  - Объекты Resource для ресурсов")
++        self.result_list.addItem("  - Участники добавлены на сцену")
++        self.result_label.setText(
++            f"Импорт выполнен (заглушка)\n"
++            f"Фактический импорт будет после реализации парсера."
++        )
++
++
++class LSSCharmImporter(QWidget):
++    """Импорт отдельных чар из LSS — заглушка с понятным интерфейсом."""
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.init_ui()
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        title = QLabel("ИМПОРТ ЧАР ИЗ LSS")
++        title.setObjectName("section")
++        layout.addWidget(title)
++
++        desc = QLabel(
++            "Импортирует отдельные чар/спеллы из LSS.\n"
++            "Пока — заглушка. Позже обработает формат LSS и создаст Action."
++        )
++        desc.setWordWrap(True)
++        desc.setObjectName("muted")
++        layout.addWidget(desc)
++
++        # Поле для имени
++        name_row = QHBoxLayout()
++        name_row.addWidget(QLabel("Имя чара:"))
++        self.charm_name = QLineEdit("")
++        name_row.addWidget(self.charm_name, 1)
++        layout.addLayout(name_row)
++
++        # Уровень
++        level_row = QHBoxLayout()
++        level_row.addWidget(QLabel("Уровень:"))
++        self.charm_level = QSpinBox()
++        self.charm_level.setRange(0, 20)
++        self.charm_level.setValue(1)
++        level_row.addWidget(self.charm_level)
++        layout.addLayout(level_row)
++
++        # Использование (X/Y)
++        usage_row = QHBoxLayout()
++        usage_row.addWidget(QLabel("Использование (X/Y):"))
++        self.charm_usage = QLineEdit("1/1")
++        usage_row.addWidget(self.charm_usage, 1)
++        layout.addLayout(usage_row)
++
++        # Дистанция
++        range_row = QHBoxLayout()
++        range_row.addWidget(QLabel("Дистанция (футов):"))
++        self.charm_range = QSpinBox()
++        self.charm_range.setRange(0, 1000)
++        self.charm_range.setValue(30)
++        range_row.addWidget(self.charm_range)
++        layout.addLayout(range_row)
++
++        # Тип
++        type_row = QHBoxLayout()
++        type_row.addWidget(QLabel("Тип:"))
++        self.charm_type = QComboBox()
++        self.charm_type.addItems(["Чар", "Спелл", "Особенность", "Реакция", "Пассивное"])
++        type_row.addWidget(self.charm_type, 1)
++        layout.addLayout(type_row)
++
++        # Описание
++        desc_label = QLabel("Описание (из LSS):")
++        layout.addWidget(desc_label)
++        self.charm_desc = QLineEdit("")
++        self.charm_desc.setPlaceholderText("Описание чара...")
++        self.charm_desc.setMinimumHeight(60)
++        layout.addWidget(self.charm_desc)
++
++        # Кнопки
++        button_row = QHBoxLayout()
++        create_button = QPushButton("СОЗДАТЬ ACTION")
++        create_button.setObjectName("primary")
++        create_button.clicked.connect(self.create_action)
++        button_row.addWidget(create_button)
++
++        preview_button = QPushButton("Предпросмотр")
++        preview_button.clicked.connect(self.preview)
++        button_row.addWidget(preview_button)
++
++        import_button = QPushButton("Импорт в кампанию")
++        import_button.clicked.connect(self.import_charm)
++        button_row.addWidget(import_button)
++
++        button_row.addStretch()
++        layout.addLayout(button_row)
++
++        # Результат
++        self.result_label = QLabel("Результат: —")
++        self.result_label.setWordWrap(True)
++        self.result_label.setObjectName("muted")
++        layout.addWidget(self.result_label)
++
++        self.preview_label = QLabel("")
++        self.preview_label.setWordWrap(True)
++        layout.addWidget(self.preview_label)
++
++    def create_action(self) -> None:
++        """Создать Action из данных формы. Пока заглушка — показывает структуру."""
++        name = self.charm_name.text().strip() or "Чар"
++        usage_text = self.charm_usage.text().strip()
++
++        # Парсинг использования X/Y
++        usage_parts = usage_text.split("/")
++        current = int(usage_parts[0]) if len(usage_parts) > 0 and usage_parts[0].strip().isdigit() else 1
++        maximum = int(usage_parts[1]) if len(usage_parts) > 1 and usage_parts[1].strip().isdigit() else 1
++
++        action = Action(
++            name=name,
++            kind="utility",
++            damage="0",
++            range_ft=self.charm_range.value(),
++            description=self.charm_desc.text().strip() or "Без описания",
++        )
++
++        # Если есть использование — создаём Resource
++        if maximum > 0:
++            resource = Resource(
++                name=name,
++                current=current,
++                maximum=maximum,
++                recovery="long",
++            )
++            action.resource_id = resource.id
++
++        self.result_label.setText(
++            f"Создан Action:\n"
++            f"  Имя: {action.name}\n"
++            f"  Тип: {action.kind}\n"
++            f"  Урон: {action.damage}\n"
++            f"  Дистанция: {action.range_ft} футов\n"
++            f"  Ресурс: {resource.name} ({resource.current}/{resource.maximum})"
++        )
++
++        self.preview_label.setText(
++            f"Предпросмотр чара:\n"
++            f"========================================\n"
++            f"{action.name}\n"
++            f"Уровень: {self.charm_level.value()}\n"
++            f"Использование: {current}/{maximum}\n"
++            f"Дистанция: {self.charm_range.value()} футов\n"
++            f"Тип: {self.charm_type.currentText()}\n"
++            f"----------------------------------------\n"
++            f"{self.charm_desc.text() or 'Описание отсутствует'}\n"
++            f"========================================"
++        )
++
++    def preview(self) -> None:
++        """Показать предпросмотр чара."""
++        name = self.charm_name.text().strip() or "Чар"
++        self.preview_label.setText(
++            f"Предпросмотр:\n"
++            f"========================================\n"
++            f"{name}\n"
++            f"Уровень: {self.charm_level.value()}\n"
++            f"Использование: {self.charm_usage.text()}\n"
++            f"Дистанция: {self.charm_range.value()} футов\n"
++            f"Тип: {self.charm_type.currentText()}\n"
++            f"----------------------------------------\n"
++            f"{self.charm_desc.text() or 'Описание отсутствует'}\n"
++            f"========================================"
++        )
++
++    def import_charm(self) -> None:
++        """Импорт чара в кампанию. Пока заглушка — пишет сообщение."""
++        name = self.charm_name.text().strip() or "Чар"
++        self.result_label.setText(
++            f"Чар '{name}' импортирован в кампанию (заглушка).\n"
++            f"Фактический импорт будет после реализации."
++        )
+diff --git a/dragon_saga/parser.py b/dragon_saga/parser.py
+index ece8784..6e60b9b 100644
+--- a/dragon_saga/parser.py
++++ b/dragon_saga/parser.py
+@@ -197,6 +197,15 @@ def _candidate_segments(source: str, markers: list[tuple[int, int, str]]) -> lis
+                 results.append((offset + match.start("name"), name, body, section))
+     return results
+ 
++def _extract_formula_parts(text: str) -> list[str]:
++    """Извлекает все формулы вида XdY[+Z/-Z] из текста, включая составные вроде '1d8+3, 2d6 и 3d10-2'."""
++    formulas = []
++    for match in re.finditer(r"(\d+\s*[dкъ]\s*\d+(?:\s*[+−-]\s*\d+)?)", text, re.I):
++        formula = match.group(1).replace(" ", "").replace("к", "d").replace("К", "d").replace("ъ", "d").replace("−", "-")
++        formulas.append(formula)
++    return formulas
++
++
+ def _action_from_segment(name: str, body: str, section: str) -> tuple[Action, tuple[int, int, str] | None]:
+     attack_match = _first([
+         r"(?:Melee|Ranged|Weapon|Spell|Рукопашная|Дальнобойная|Оружейная|Заклинательная)[^.:;]{0,55}(?:Attack|атака)\s*:\s*([+−-]\s*\d+)",
+@@ -205,10 +214,22 @@ def _action_from_segment(name: str, body: str, section: str) -> tuple[Action, tu
+     ], body)
+     attack_bonus = _integer(attack_match)
+ 
+-    dice = re.search(r"(?<!\w)(\d+\s*[dк]\s*\d+(?:\s*[+−-]\s*\d+)?)", body, re.I)
+-    damage = dice.group(1).replace(" ", "").replace("к", "d").replace("К", "d").replace("−", "-") if dice else "0"
++    dice = re.search(r"(?<!\w)(\d+\s*[dкъ]\s*\d+(?:\s*[+−-]\s*\d+)?)", body, re.I)
++    damage = dice.group(1).replace(" ", "").replace("к", "d").replace("К", "d").replace("ъ", "d").replace("−", "-") if dice else "0"
+     healing = bool(re.search(r"лечение|исцел|восстанавливает\s+\d|healing|regains?\s+\d", body, re.I))
+ 
++    # ---- Улучшенный парсинг чар и сложных формул ----
++    # Поддержка нескольких формул в одном описании: "1d8+3 урона, 2d6+save урона, 3d10-2"
++    all_formulas = _extract_formula_parts(body)
++
++    # Для чар (заклинательных) — часто бывает формула урона ИЛИ лечения
++    spell_damage_formulas = [f for f in all_formulas if re.search(r"[+-]", f) or re.search(r"\d+d\d+", f)]
++    if not damage and spell_damage_formulas:
++        # Берём первую формулу как урон, остальные можно хранить в описании
++        damage = spell_damage_formulas[0]
++        if len(spell_damage_formulas) > 1:
++            body = body + f" [формулы: {'; '.join(spell_damage_formulas)}]"
++
+     save_dc_match = _first([r"(?:Сл|DC)\s*(\d+)", r"(?:сложност[ьи]|difficulty)\s*(\d+)"], body)
+     save_dc = _integer(save_dc_match)
+     save_context = ""
+@@ -256,6 +277,101 @@ def _action_from_segment(name: str, body: str, section: str) -> tuple[Action, tu
+     return action, uses
+ 
+ 
++def _parse_lss_charm_format(text: str) -> list[Action]:
++    """Парсит формат чар, экспортируемых из Long Story Short (LSS).
++
++    Ожидаемый формат (пример):
++        Имя:char:Italia
++        Уровень:1
++        Использование:1/1
++        Расход ресурса:1 за распределение
++        Дистанция:60 футов
++        Компоненты: V, S
++        Длительность: 1 минута
++        Описание:You can speak one language you are not proficient in for the duration.
++
++
++    Или в более свободном виде:
++        Имя:char:Italia
++        Использование:1/1
++        Дистанция:60
++        C1: Концентрация
++        Описание:...
++
++    Возвращает список Action с kind='utility' (черты/чары не всегда атакуют).
++    """
++    if not text or not isinstance(text, str):
++        return []
++
++    lines = [line.strip() for line in text.splitlines() if line.strip()]
++    actions = []
++
++    # Пробуем найти имя, использование, дистанцию, компоненты
++    name = ""
++    usage = ""
++    range_ft = 0
++    components = ""
++    duration = ""
++    description_lines = []
++    concentration = False
++
++    for line in lines:
++        lower = line.lower()
++        if line.startswith("Имя:") or line.startswith("Name:"):
++            # Имя может быть в формате "Имя:char:Italia"
++            parts = line.split(":", 2)
++            if len(parts) >= 3 and parts[1] in ("char", "characteristic"):
++                name = parts[2].strip()
++            elif len(parts) >= 2:
++                name = parts[1].strip()
++        elif "использ" in lower or "исп" in lower:
++            usage = line.split(":", 1)[-1].strip()
++        elif lower.startswith("дистан") or lower.startswith("range"):
++            range_match = re.search(r"(\d+)", line.split(":", 1)[-1])
++            if range_match:
++                range_ft = int(range_match.group(1))
++        elif "компонент" in lower or "components" in lower:
++            components = line.split(":", 1)[-1].strip()
++        elif "длительн" in lower or "duration" in lower:
++            duration = line.split(":", 1)[-1].strip()
++        elif "концентр" in lower or "concentration" in lower:
++            concentration = True
++        elif "оценка:" in lower or "rating:" in lower or "стресс:" in lower:
++            # Для DD-стиля — стресс-эффекты
++            pass
++        elif "состояни" in lower or "condition" in lower:
++            # Состояния, возникающие от чара
++            pass
++        elif line.startswith("Описание:") or line.startswith("Description:"):
++            description_lines.append(line.split(":", 1)[-1].strip())
++        elif description_lines or (line and not re.match(r"^[А-ЯA-Z][а-яa-z]*:", line)):
++            # Описание может занять несколько строк
++            description_lines.append(line)
++
++    if name:
++        description = " ".join(description_lines).strip()
++        # Если есть использование в формате X/Y
++        usage_match = re.search(r"(\d+)\s*/\s*(\d+)", usage)
++        uses = None
++        if usage_match:
++            uses = (int(usage_match.group(1)), int(usage_match.group(2)), "long")
++
++        action = Action(
++            name=name[:80],
++            kind="utility",
++            damage="0",
++            range_ft=range_ft,
++            recharge="",
++            description=description or "Без описания",
++            section="actions",
++        )
++        if uses:
++            action.resource_id = ""  # будет установлен позже, если есть ресурс
++        actions.append(action)
++
++    return actions
++
++
+ def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
+     """Deterministically parse explicit fields while preserving ``source`` character-for-character."""
+     if not isinstance(source, str) or not source.strip():
+@@ -453,7 +569,7 @@ def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
+         combatant.is_boss = True
+         result.found.append("легендарные действия / босс")
+ 
+-    # Compact custom format can omit an Actions heading; mechanics on separate lines still become actions.
++    # Компактный табличный формат может не иметь заголовка Действия; механика на отдельных строках всё равно становится действиями.
+     if not combatant.actions:
+         for raw_line in lines:
+             if not re.search(r"\d+\s*[dк]\s*\d+|to hit|к (?:атаке|попаданию)|спасбросок|saving throw", raw_line, re.I):
+@@ -473,6 +589,17 @@ def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
+             combatant.actions.append(action)
+             result.found.append(f"actions: {action.name}")
+ 
++    # ---- LSS-формат: импорт чар и спеллов из Long Story Short ----
++    # Если в тексте встречается формат "Имя:char:..." или "Имя:spell:...",
++    # пробуем распарсить его как отдельные акции.
++    lss_actions = _parse_lss_charm_format(source)
++    for lss_action in lss_actions:
++        if lss_action not in combatant.actions:
++            combatant.actions.append(lss_action)
++            result.found.append(f"LSS: {lss_action.name}")
++            if lss_action.name not in combatant.traits:
++                combatant.traits.append(lss_action.name)
++
+     if combatant.initiative_bonus == 0 and "инициатива" not in result.found and score_count:
+         combatant.initiative_bonus = combatant.ability_mod("dex")
+         result.warnings.append("Инициатива не указана; для боя вычислен модификатор ЛОВ по правилам 5e.")
+@@ -487,7 +614,6 @@ def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
+     if score_count == 0:
+         result.warnings.append("Характеристики не указаны; значения схемы 10 отмечены как отсутствующие, а не найденные.")
+ 
+-    # Stable audit order, without claiming defaults were found in the source.
+     result.found = list(dict.fromkeys(result.found))
+     combatant.audit = [
+         *(f"Найдено: {item}" for item in result.found),
+diff --git a/dragon_saga/strategic.py b/dragon_saga/strategic.py
+new file mode 100644
+index 0000000..df3a7b1
+--- /dev/null
++++ b/dragon_saga/strategic.py
+@@ -0,0 +1,737 @@
++"""
++Стратегический режим — армия на армию, юниты на юниты, вид сверху.
++
++Заглушка с редактируемыми настройками и понятными интерфейсами.
++Позже здесь будет:
++- Сетка клеток (квадратная) и гексагональная сетка, переключаемая в настройках.
++- Токены юнитов, перемещаемые по клеткам/гексам.
++- Дистанция в клетках (1 клетка = 5 футов по умолчанию).
++- Движение, окружение, фланг, атаки между юнитами/армиями.
++- Очередь юнитов, инициатива, бой по клеткам.
++
++Сейчас — заглушка с настройками, двумя лагерями и минимальной отрисовкой поля.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Any
++from uuid import uuid4
++
++from PySide6.QtCore import Qt, Signal
++from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
++from PySide6.QtWidgets import (
++    QComboBox,
++    QFrame,
++    QGridLayout,
++    QHBoxLayout,
++    QLabel,
++    QLineEdit,
++    QListWidget,
++    QPushButton,
++    QScrollArea,
++    QSizePolicy,
++    QSpinBox,
++    QVBoxLayout,
++    QWidget,
++)
++
++from .models import Combatant
++
++
++def uid(prefix: str) -> str:
++    return f"{prefix}-{uuid4().hex[:12]}"
++
++
++# ------------------------------------------------------------------
++# Токен юнита (заглушка, позже — полноценный юнит с ОЗ, атакой, скоростью, дистанцией)
++# ------------------------------------------------------------------
++
++
++@dataclass
++class UnitToken:
++    """Юнит в стратегическом режиме. Пока без событий, позже будет с логикой боя."""
++
++    id: str = field(default_factory=lambda: uid("unit"))
++    name: str = "Юнит"
++    side: str = "hero"
++    hp: int = 10
++    max_hp: int = 10
++    ac: int = 10
++    attack_bonus: int = 0
++    damage: str = "1d6"
++    damage_type: str = ""
++    speed_ft: int = 30  # скорость в футах (позже переводится в клетки)
++    range_ft: int = 5  # дистанция атаки в футах
++    actions_per_turn: int = 1  # сколько действий у юнита за ход (заглушка)
++    icon_path: str = ""  # путь к иконке (пока пусто — позже загрузить из LSS или загрузить файл)
++    conditions: list[str] = field(default_factory=list)
++    selected: bool = False
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "id": self.id,
++            "name": self.name,
++            "side": self.side,
++            "hp": self.hp,
++            "max_hp": self.max_hp,
++            "ac": self.ac,
++            "attack_bonus": self.attack_bonus,
++            "damage": self.damage,
++            "damage_type": self.damage_type,
++            "speed_ft": self.speed_ft,
++            "range_ft": self.range_ft,
++            "actions_per_turn": self.actions_per_turn,
++            "icon_path": self.icon_path,
++            "conditions": self.conditions,
++        }
++
++    @classmethod
++    def from_dict(cls, data: dict[str, Any]) -> "UnitToken":
++        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
++
++
++# ------------------------------------------------------------------
++# Поле: сетка клеток (квадратная) и гексагональная сетка
++# ------------------------------------------------------------------
++
++
++@dataclass
++class Cell:
++    """Клетка на сетке. Пока заглушка — позже будет высота, проходимость, окружение."""
++
++    row: int
++    col: int
++    unit_id: str | None = None
++    passable: bool = True
++    elevation: int = 0  # по умолчанию 0 (позже — высота для прикрытия)
++
++
++class GridField(QFrame):
++    """Квадратное поле с клетками. Пока заглушка, позже — гексагональная сетка и движение."""
++
++    cell_selected = Signal(int, int)  # row, col
++
++    def __init__(self, rows: int = 12, cols: int = 12, cell_size: int = 50, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.setObjectName("battlefield")
++        self.rows = rows
++        self.cols = cols
++        self.cell_size = cell_size
++        self.cells: list[list[Cell]] = [
++            [Cell(row=r, col=c, passable=True) for c in range(cols)] for r in range(rows)
++        ]
++        self.setMinimumSize(cols * cell_size, rows * cell_size)
++        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
++        self.setCursor(Qt.CursorShape.PointingHandCursor)
++
++    def paintEvent(self, event):  # type: ignore[override]
++        painter = QPainter(self)
++        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
++        rect = self.rect().adjusted(2, 2, -2, -2)
++        padding = 12
++        w = rect.width() - padding * 2
++        h = rect.height() - padding * 2
++        top = padding
++        left = padding
++        cell_w = w / self.cols
++        cell_h = h / self.rows
++
++        # Фон поля
++        painter.fillRect(rect, QColor("#0c0a0b"))
++
++        # Клетки
++        for r in range(self.rows):
++            for c in range(self.cols):
++                cell = self.cells[r][c]
++                x = left + c * cell_w
++                y = top + r * cell_h
++                if cell.unit_id:
++                    painter.fillRect(int(x) + 1, int(y) + 1, int(cell_w) - 2, int(cell_h) - 2, QColor("#3a2a26"))
++                    painter.setPen(QPen(QColor("#c9a77a"), 1))
++                    painter.drawRect(int(x) + 1, int(y) + 1, int(cell_w) - 2, int(cell_h) - 2)
++                else:
++                    painter.setPen(QPen(QColor("#2a2523"), 1))
++                    painter.setBrush(QColor("#1a1614"))
++                    painter.drawRect(int(x) + 0, int(y) + 0, int(cell_w) - 1, int(cell_h) - 1)
++
++        # Выделенная клетка
++        if hasattr(self, "_selected") and self._selected:
++            r, c = self._selected
++            x = left + c * cell_w
++            y = top + r * cell_h
++            painter.setPen(QPen(QColor("#d98c4e"), 2))
++            painter.drawRect(int(x) + 1, int(y) + 1, int(cell_w) - 2, int(cell_h) - 2)
++
++        # Юниты (на клетках)
++        for r in range(self.rows):
++            for c in range(self.cols):
++                cell = self.cells[r][c]
++                if cell.unit_id:
++                    x = left + c * cell_w + cell_w / 2
++                    y = top + r * cell_h + cell_h / 2
++                    painter.setPen(QColor("#d98c4e"))
++                    painter.drawEllipse(int(x - 10), int(y - 10), 20, 20)
++
++        painter.end()
++
++    def mousePressEvent(self, event):  # type: ignore[override]
++        rect = self.rect().adjusted(2, 2, -2, -2)
++        padding = 12
++        w = rect.width() - padding * 2
++        h = rect.height() - padding * 2
++        top = padding
++        left = padding
++        cell_w = w / self.cols
++        cell_h = h / self.rows
++        c = min(self.cols - 1, max(0, int((event.pos().x() - left) / cell_w)))
++        r = min(self.rows - 1, max(0, int((event.pos().y() - top) / cell_h)))
++        if 0 <= r < self.rows and 0 <= c < self.cols:
++            self._selected = (r, c)
++            self.cell_selected.emit(r, c)
++            self.update()
++
++    def set_unit_on_cell(self, unit_id: str, row: int, col: int) -> None:
++        """Переместить юнит на клетку. Убрать с предыдущей клетки."""
++        for r in range(self.rows):
++            for c in range(self.cols):
++                if self.cells[r][c].unit_id == unit_id:
++                    self.cells[r][c].unit_id = None
++        if 0 <= row < self.rows and 0 <= col < self.cols:
++            self.cells[row][col].unit_id = unit_id
++            self.update()
++
++    def occupied_cells(self) -> dict[str, tuple[int, int]]:
++        """Вернуть карту id юнита → (row, col)."""
++        result: dict[str, tuple[int, int]] = {}
++        for r in range(self.rows):
++            for c in range(self.cols):
++                if self.cells[r][c].unit_id:
++                    result[self.cells[r][c].unit_id] = (r, c)
++        return result
++
++    def reset_selection(self) -> None:
++        if hasattr(self, "_selected"):
++            del self._selected
++        self.update()
++
++
++# ------------------------------------------------------------------
++# Лагерь (армия)
++# ------------------------------------------------------------------
++
++
++@dataclass
++class Army:
++    """Армия — набор юнитов + название стороны."""
++
++    side: str = "hero"
++    name: str = "Сторона"
++    units: list[UnitToken] = field(default_factory=list)
++    win_count: int = 0
++    losses: int = 0
++
++    def alive_units(self) -> list[UnitToken]:
++        return [u for u in self.units if u.hp > 0]
++
++    def total_hp(self) -> int:
++        return sum(u.hp for u in self.units)
++
++    def max_hp(self) -> int:
++        return sum(u.max_hp for u in self.units)
++
++    def total_actions(self) -> int:
++        return sum(u.actions_per_turn for u in self.alive_units())
++
++
++# ------------------------------------------------------------------
++# Стратегическая битва (заглушка)
++# ------------------------------------------------------------------
++
++
++@dataclass
++class StrategicBattle:
++    """Стратегическая битва — два лагеря + поле + очередь."""
++
++    armies: dict[str, Army] = field(default_factory=dict)  # side → Army
++    field: GridField | None = None
++    turn_index: int = 0
++    current_turn: str = "hero"
++    active: bool = False
++    log: list[str] = field(default_factory=list)
++    initiative_order: list[str] = field(default_factory=list)  # id юнитов в порядке инициативы
++
++    def current_army(self) -> Army | None:
++        if self.current_turn not in self.armies:
++            return None
++        return self.armies[self.current_turn]
++
++    def next_turn(self) -> None:
++        if not self.active:
++            return
++        self.turn_index += 1
++        if self.turn_index >= len(self.initiative_order):
++            self.turn_index = 0
++        current_id = self.initiative_order[self.turn_index] if self.initiative_order else ""
++        if current_id:
++            for side, army in self.armies.items():
++                if any(u.id == current_id for u in army.units):
++                    self.current_turn = side
++                    break
++        self.log.append(f"Ход: {self.current_turn} (юнит {self.initiative_order[self.turn_index] if self.initiative_order else '—'})")
++
++    def end_battle(self) -> None:
++        self.active = False
++        self.log.append("Битва завершена")
++
++
++class UnitEditorDialog(QDialog):
++    """Диалог редактирования юнита в стратегическом режиме — редактируемые параметры."""
++
++    def __init__(self, unit: UnitToken | None = None, side: str = "hero", parent: QWidget | None = None):
++        super().__init__(parent)
++        self.unit = unit or UnitToken(side=side)
++        self.side = side
++        self.setWindowTitle(f"Редактирование юнита · {'Герои' if side == 'hero' else 'Враги'}")
++        self.resize(500, 650)
++        self.init_ui()
++
++    def init_ui(self) -> None:
++        from PySide6.QtWidgets import QDialogButtonBox, QFormLayout, QComboBox, QCheckBox
++
++        layout = QVBoxLayout(self)
++        form = QFormLayout()
++        form.setSpacing(8)
++
++        self.name_input = QLineEdit(self.unit.name)
++
++        self.side_combo = QComboBox()
++        self.side_combo.addItem("Герои", "hero")
++        self.side_combo.addItem("Враги", "enemy")
++        self.side_combo.setCurrentIndex(0 if self.side == "hero" else 1)
++
++        self.hp_input = QSpinBox()
++        self.hp_input.setRange(0, 999)
++        self.hp_input.setValue(self.unit.hp)
++
++        self.max_hp_input = QSpinBox()
++        self.max_hp_input.setRange(1, 999)
++        self.max_hp_input.setValue(self.unit.max_hp)
++
++        self.ac_input = QSpinBox()
++        self.ac_input.setRange(0, 99)
++        self.ac_input.setValue(self.unit.ac)
++
++        self.attack_input = QSpinBox()
++        self.attack_input.setRange(-20, 40)
++        self.attack_input.setValue(self.unit.attack_bonus)
++        self.attack_input.setPrefix("+")
++
++        self.damage_input = QLineEdit(self.unit.damage)
++
++        self.damage_type_combo = QComboBox()
++        damage_types = ["", "огневое", "холодное", "ламповое", "кинетическое", "мор/токсик", "психическое", "неконтагиозное"]
++        self.damage_type_combo.addItems(damage_types)
++        self.damage_type_combo.setCurrentIndex(damage_types.index(self.unit.damage_type) if self.unit.damage_type in damage_types else 0)
++
++        self.speed_input = QSpinBox()
++        self.speed_input.setRange(0, 200)
++        self.speed_input.setValue(self.unit.speed_ft)
++        self.speed_input.setSuffix(" футов")
++
++        self.range_input = QSpinBox()
++        self.range_input.setRange(0, 600)
++        self.range_input.setValue(self.unit.range_ft)
++        self.range_input.setSuffix(" футов")
++
++        self.actions_input = QSpinBox()
++        self.actions_input.setRange(0, 10)
++        self.actions_input.setValue(self.unit.actions_per_turn)
++        self.actions_input.setSuffix(" действий за ход")
++
++        self.icon_input = QLineEdit(self.unit.icon_path)
++
++        self.conditions_input = QLineEdit(", ".join(self.unit.conditions))
++
++        self.melee_check = QCheckBox("Ближний бой")
++        self.melee_check.setChecked(self.range_ft <= 5)
++
++        self.ranged_check = QCheckBox("Дальний бой")
++        self.ranged_check.setChecked(self.range_ft > 5)
++
++        for label, widget in (
++            ("Имя", self.name_input),
++            ("Сторона", self.side_combo),
++            ("Текущие ОЗ", self.hp_input),
++            ("Максимум ОЗ", self.max_hp_input),
++            ("КД", self.ac_input),
++            ("Бонус атаки", self.attack_input),
++            ("Урон (формула)", self.damage_input),
++            ("Тип урона", self.damage_type_combo),
++            ("Скорость", self.speed_input),
++            ("Дистанция атаки", self.range_input),
++            ("Действий за ход", self.actions_input),
++            ("Значок (путь к файлу)", self.icon_input),
++            ("Состояния (через запятую)", self.conditions_input),
++        ):
++            if widget:
++                form.addRow(label, widget)
++            else:
++                form.addRow(label, widget)  # тип выпадающего списка уже добавлен
++
++        layout.addLayout(form)
++
++        # Чекбоксы режима атаки
++        check_row = QHBoxLayout()
++        check_row.addWidget(self.melee_check)
++        check_row.addWidget(self.ranged_check)
++        check_row.addStretch()
++        layout.addLayout(check_row)
++
++        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
++        buttons.accepted.connect(self.accept)
++        buttons.rejected.connect(self.reject)
++        layout.addWidget(buttons)
++
++
++class StrategicStage(QWidget):
++    """Заглушка стратегического режима. Позже — полноценный бой по клеткам с миникартой."""
++
++    def __init__(self, parent: QWidget | None = None):
++        super().__init__(parent)
++        self.battle = StrategicBattle()
++        self.init_ui()
++        self.init_field()
++        self.init_armies()
++        self.connect_signals()
++
++    def init_ui(self) -> None:
++        layout = QVBoxLayout(self)
++        layout.setContentsMargins(0, 0, 0, 0)
++
++        # Заголовок
++        title = QLabel("СТРАТЕГИЧЕСКИЙ РЕЖИМ · Армия на армию (заглушка)")
++        title.setObjectName("title")
++        layout.addWidget(title)
++
++        # Выбор типа сетки
++        grid_type_label = QLabel("Тип поля:")
++        grid_type_label.setObjectName("muted")
++        self.grid_type_combo = QComboBox()
++        self.grid_type_combo.addItems(["Квадратная сетка", "Гексагональная сетка"])
++        self.grid_type_combo.setCurrentIndex(0)
++        grid_type_layout = QHBoxLayout()
++        grid_type_layout.addWidget(grid_type_label)
++        grid_type_layout.addWidget(self.grid_type_combo)
++        grid_type_layout.addStretch()
++        layout.addLayout(grid_type_layout)
++
++        # Настройки клетки
++        settings_label = QLabel("Настройки клетки:")
++        settings_label.setObjectName("muted")
++        settings_layout = QHBoxLayout()
++        settings_layout.addWidget(QLabel("Размер клетки (футов):"))
++        self.cell_size_spin = QSpinBox()
++        self.cell_size_spin.setRange(1, 20)
++        self.cell_size_spin.setValue(5)
++        self.cell_size_spin.setSuffix(" футов")
++        settings_layout.addWidget(self.cell_size_spin)
++        settings_layout.addStretch()
++        layout.addLayout(settings_layout)
++
++        # Поле
++        self.field = GridField(rows=10, cols=10, cell_size=50)
++        self.field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
++        layout.addWidget(self.field)
++
++        # Панель лагерей
++        armies_layout = QHBoxLayout()
++        self.hero_army_widget = self._create_army_widget("hero", "Герои")
++        self.enemy_army_widget = self._create_army_widget("enemy", "Враги")
++        armies_layout.addWidget(self.hero_army_widget)
++        armies_layout.addWidget(self.enemy_army_widget)
++        layout.addLayout(armies_layout)
++
++        # Лог боя
++        log_label = QLabel("Лог боя:")
++        log_label.setObjectName("muted")
++        layout.addWidget(log_label)
++        self.log_list = QListWidget()
++        self.log_list.setMaximumHeight(150)
++        layout.addWidget(self.log_list)
++
++        # Кнопки управления
++        buttons_layout = QHBoxLayout()
++        self.start_button = QPushButton("Начать битву")
++        self.start_button.setObjectName("primary")
++        self.start_button.clicked.connect(self._start_battle)
++        self.step_button = QPushButton("Следующий ход")
++        self.step_button.clicked.connect(self._next_turn)
++        self.end_button = QPushButton("Завершить битву")
++        self.end_button.clicked.connect(self._end_battle)
++        self.reset_button = QPushButton("Сбросить поле")
++        self.reset_button.clicked.connect(self._reset_field)
++        buttons_layout.addWidget(self.start_button)
++        buttons_layout.addWidget(self.step_button)
++        buttons_layout.addWidget(self.end_button)
++        buttons_layout.addWidget(self.reset_button)
++        layout.addLayout(buttons_layout)
++
++    def _create_army_widget(self, side: str, name: str) -> QWidget:
++        widget = QWidget()
++        widget.setObjectName("panel")
++        layout = QVBoxLayout(widget)
++        layout.setContentsMargins(8, 8, 8, 8)
++
++        header = QHBoxLayout()
++        header_label = QLabel(f"ЛАГЕРЬ · {name.upper()}")
++        header_label.setObjectName("section")
++        header.addWidget(header_label)
++        header.addStretch()
++
++        add_unit_button = QPushButton("＋ Добавить юнит")
++        add_unit_button.clicked.connect(lambda: self._add_unit(side))
++        remove_unit_button = QPushButton("✕ Удалить юнит")
++        remove_unit_button.clicked.connect(lambda: self._remove_unit(side))
++        header.addWidget(add_unit_button)
++        header.addWidget(remove_unit_button)
++        layout.addLayout(header)
++
++        self.unit_list = QListWidget()
++        self.unit_list.setMinimumHeight(120)
++        self.unit_list.currentRowChanged.connect(
++            lambda row: self._select_unit(side, row)
++        )
++        layout.addWidget(self.unit_list)
++
++        stats_label = QLabel("Юнитов: 0 · ОЗ: 0/0 · Действий: 0")
++        stats_label.setObjectName("muted")
++        stats_label.setWordWrap(True)
++        layout.addWidget(stats_label)
++
++        edit_army_button = QPushButton("Редактировать состав")
++        edit_army_button.clicked.connect(lambda: self._edit_army(side))
++        layout.addWidget(edit_army_button)
++
++        self._army_side = side
++        self._army_name = name
++        return widget
++
++    def init_field(self) -> None:
++        self.field.cell_selected.connect(self._on_cell_selected)
++        self.field.reset_selection()
++
++    def init_armies(self) -> None:
++        self.battle.armies["hero"] = Army(side="hero", name="Герои")
++        self.battle.armies["enemy"] = Army(side="enemy", name="Враги")
++        self.battle.initiative_order = []
++        self._refresh_army_widgets()
++
++    def _refresh_army_widgets(self) -> None:
++        self._refresh_unit_list(self.hero_army_widget, "hero")
++        self._refresh_unit_list(self.enemy_army_widget, "enemy")
++
++    def _refresh_unit_list(self, widget: QWidget, side: str) -> None:
++        list_widget = widget.findChild(QListWidget)
++        if list_widget:
++            list_widget.clear()
++            army = self.battle.armies.get(side)
++            if army:
++                for unit in army.units:
++                    item_text = f"{unit.name} · ОЗ {unit.hp}/{unit.max_hp} · КД {unit.ac} · Уроб {unit.damage} · Скорость {unit.speed_ft}фт"
++                    if unit.conditions:
++                        item_text += f" · Состояния: {', '.join(unit.conditions)}"
++                    list_widget.addItem(item_text)
++                list_widget.setCurrentRow(-1)
++
++    def _add_unit(self, side: str) -> None:
++        """Добавить юнит в лагерь. Пока заглушка — позже будет форма редактирования."""
++        army = self.battle.armies.get(side)
++        if army:
++            unit = UnitToken(
++                name=f"Юнит {len(army.units) + 1}",
++                side=side,
++                hp=10,
++                max_hp=10,
++                ac=10,
++                attack_bonus=0,
++                damage="1d6",
++                speed_ft=30,
++                range_ft=5,
++            )
++            army.units.append(unit)
++            self._refresh_army_widgets()
++            self.battle.log.append(f"Добавлен юнит {unit.name} в лагерь {'Герои' if side == 'hero' else 'Враги'}")
++
++    def _remove_unit(self, side: str) -> None:
++        """Удалить выбранный юнит."""
++        widget = self.hero_army_widget if side == "hero" else self.enemy_army_widget
++        list_widget = widget.findChild(QListWidget)
++        if list_widget and list_widget.currentRow() >= 0:
++            army = self.battle.armies.get(side)
++            if army and list_widget.currentRow() < len(army.units):
++                removed = army.units.pop(list_widget.currentRow())
++                self._refresh_army_widgets()
++                self.battle.log.append(f"Удалён юнит {removed.name}")
++
++    def _select_unit(self, side: str, row: int) -> None:
++        """Выбрать юнит для перемещения."""
++        army = self.battle.armies.get(side)
++        if army and 0 <= row < len(army.units):
++            unit = army.units[row]
++            self.field.reset_selection()
++            for r in range(self.field.rows):
++                for c in range(self.field.cols):
++                    if self.field.cells[r][c].unit_id == unit.id:
++                        self.field._selected = (r, c)
++                        self.field.update()
++                        break
++
++    def _on_cell_selected(self, row: int, col: int) -> None:
++        """Переместить выбранный юнит на выбранную клетку."""
++        if not self.battle.active:
++            return
++        # Найти выбранный юнит по текущему лагерю
++        army = self.battle.current_army()
++        if army and army.alive_units():
++            # Попробуем найти юнит, который сейчас "выбран" (по последнему клику)
++            selected_unit = army.alive_units()[0]  # заглушка — позже будет реальный выбор
++            # Проверка: можно ли переместиться (осталось ли движение)
++            current_pos = None
++            for r in range(self.field.rows):
++                for c in range(self.field.cols):
++                    if self.field.cells[r][c].unit_id == selected_unit.id:
++                        current_pos = (r, c)
++                        break
++            if current_pos:
++                dist = abs(row - current_pos[0]) + abs(col - current_pos[1])  # Манхэттен для заглушки
++                max_cells = selected_unit.speed_ft // 5  # 1 клетка = 5 футов
++                if dist <= max_cells:
++                    # Очистить текущую клетку
++                    for r in range(self.field.rows):
++                        for c in range(self.field.cols):
++                            if self.field.cells[r][c].unit_id == selected_unit.id:
++                                self.field.cells[r][c].unit_id = None
++                    # Установить новую
++                    self.field.cells[row][col].unit_id = selected_unit.id
++                    self.field.update()
++                    self.battle.log.append(f"{selected_unit.name} → ({row}, {col})")
++                    self.field._selected = (row, col)
++                    self.field.update()
++
++    def _start_battle(self) -> None:
++        self.battle.active = True
++        self.battle.turn_index = 0
++        # Формируем инициативную очередь (заглушка — по ОЗ, позже по инициативе)
++        all_units: list[UnitToken] = []
++        for army in self.battle.armies.values():
++            all_units.extend(army.units)
++        all_units.sort(key=lambda u: u.ac, reverse=True)
++        self.battle.initiative_order = [u.id for u in all_units if u.hp > 0]
++        self.battle.current_turn = "hero"
++        self._refresh_army_widgets()
++        self.log_list.clear()
++        self.battle.log.append("Битва началась!")
++        self.log_list.addItem("Битва началась!")
++
++    def _next_turn(self) -> None:
++        if not self.battle.active:
++            return
++        self.battle.next_turn()
++        army = self.battle.current_army()
++        self.log_list.addItem(f"Ход: {army.name if army else '—'}")
++        self._refresh_army_widgets()
++
++    def _end_battle(self) -> None:
++        self.battle.end_battle()
++        self.log_list.addItem("Битва завершена")
++        self._refresh_army_widgets()
++
++    def _reset_field(self) -> None:
++        for r in range(self.field.rows):
++            for c in range(self.field.cols):
++                self.field.cells[r][c].unit_id = None
++        self.field.reset_selection()
++        self.field.update()
++
++    def _edit_army(self, side: str) -> None:
++        """Открыть диалог редактирования состава армии — по юнитам через UnitEditorDialog."""
++        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout, QListWidget, QPushButton, QHBoxLayout, QLabel
++
++        army = self.battle.armies.get(side)
++        if not army:
++            return
++
++        dialog = QDialog(self)
++        dialog.setWindowTitle(f"Редактирование армии · {'Герои' if side == 'hero' else 'Враги'}")
++        dialog.resize(520, 360)
++        layout = QVBoxLayout(dialog)
++
++        selector_label = QLabel("Выберите юнита для редактирования:")
++        selector_label.setObjectName("muted")
++        layout.addWidget(selector_label)
++
++        unit_list = QListWidget()
++        for i, u in enumerate(army.units):
++            unit_list.addItem(f"{i + 1}. {u.name} · ОЗ {u.hp}/{u.max_hp} · КД {u.ac}")
++        unit_list.setMaximumHeight(150)
++        layout.addWidget(unit_list, 1)
++
++        row = QHBoxLayout()
++        edit_button = QPushButton("Редактировать выбранного")
++        edit_button.setObjectName("primary")
++        edit_button.clicked.connect(lambda: self._edit_single_unit(side, unit_list.currentRow(), dialog))
++        row.addWidget(edit_button)
++        add_button = QPushButton("Добавить нового")
++        add_button.clicked.connect(lambda: self._add_unit(side))
++        row.addWidget(add_button)
++        remove_button = QPushButton("Удалить выбранного")
++        remove_button.setObjectName("danger")
++        remove_button.clicked.connect(lambda: self._remove_unit_with_confirm(side, unit_list.currentRow()))
++        row.addWidget(remove_button)
++        row.addStretch()
++        layout.addLayout(row)
++
++        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
++        buttons.rejected.connect(dialog.reject)
++        layout.addWidget(buttons)
++        dialog.exec()
++
++    def _edit_single_unit(self, side: str, index: int, parent_dialog: QDialog | None = None) -> None:
++        """Редактировать отдельного юнита через UnitEditorDialog."""
++        army = self.battle.armies.get(side)
++        if not army or not (0 <= index < len(army.units)):
++            return
++        unit = army.units[index]
++        editor = UnitEditorDialog(unit=unit, side=side, parent=parent_dialog or self)
++        if editor.exec() == QDialog.DialogCode.Accepted:
++            unit.name = editor.name_input.text().strip() or unit.name
++            unit.side = editor.side_combo.currentData()
++            unit.hp = editor.hp_input.value()
++            unit.max_hp = editor.max_hp_input.value()
++            if unit.hp > unit.max_hp:
++                unit.hp = unit.max_hp
++            unit.ac = editor.ac_input.value()
++            unit.attack_bonus = editor.attack_input.value()
++            unit.damage = editor.damage_input.text().strip() or "1d6"
++            unit.damage_type = editor.damage_type_combo.currentText()
++            unit.speed_ft = editor.speed_input.value()
++            unit.range_ft = editor.range_input.value()
++            unit.actions_per_turn = editor.actions_input.value()
++            unit.icon_path = editor.icon_input.text().strip()
++            unit.conditions = [x.strip() for x in editor.conditions_input.text().split(",") if x.strip()]
++            self._refresh_army_widgets()
++            self.battle.log.append(f"Юнит «{unit.name}» отредактирован")
++
++    def _remove_unit_with_confirm(self, side: str, index: int) -> None:
++        """Удалить юнит с подтверждением."""
++        from PySide6.QtWidgets import QMessageBox
++        army = self.battle.armies.get(side)
++        if not army or not (0 <= index < len(army.units)):
++            return
++        removed = army.units[index]
++        if QMessageBox.question(self, "Удалить юнита", f"Удалить «{removed.name}» из армии?") != QMessageBox.StandardButton.Yes:
++            return
++        army.units.pop(index)
++        self._refresh_army_widgets()
++        self.battle.log.append(f"Удалён юнит {removed.name}")
+diff --git a/dragon_saga/ui.py b/dragon_saga/ui.py
+index 242951f..4986b72 100644
+--- a/dragon_saga/ui.py
++++ b/dragon_saga/ui.py
+@@ -13,15 +13,18 @@ from PySide6.QtWidgets import (
+     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+     QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
+     QInputDialog, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter,
+-    QStackedWidget, QTextEdit, QVBoxLayout, QWidget,
++    QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+ )
+ 
+-from .models import ABILITIES, Action, Campaign, Combatant, ZONES, starter_campaign
++from .models import ABILITIES, Action, Campaign, Combatant, ZONES, starter_campaign, Resource
+ from .network import NetworkClient, NetworkError
+-from .parser import parse_stat_block
++from .parser import parse_stat_block, _parse_lss_charm_format
+ from .rules import BattleEngine, RuleError
+ from .server import create_server
+ from .storage import DEFAULT_SAVE, load_campaign, save_campaign
++from .strategic import StrategicStage, UnitToken
++from .dd_stress import DDBattleStage, DDParticipant, StressLevel, Position
++from .calculators import DamageCalculator, SaveDCcalculator, ACComparison, InitiativeTracker
+ 
+ 
+ APP_ICON_SVG = b'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#172023"/><path d="M95 377L190 104l66 116 66-116 95 273-98-82-63 113-63-113z" fill="#758b7e" stroke="#d2ad6d" stroke-width="18" stroke-linejoin="round"/><circle cx="256" cy="260" r="30" fill="#d2ad6d"/></svg>'''
+@@ -784,6 +787,11 @@ class MainWindow(QMainWindow):
+         section = QLabel("БОЕВОЙ СТОЛ"); section.setObjectName("eyebrow"); section.setStyleSheet("padding:18px 10px 5px"); side.addWidget(section)
+         self.battle_nav = QPushButton("⚔   Боевая сцена"); self.battle_nav.setObjectName("nav"); self.battle_nav.setCheckable(True); self.battle_nav.clicked.connect(lambda: self.set_page(0)); side.addWidget(self.battle_nav)
+         self.characters_nav = QPushButton("♙   Листы участников"); self.characters_nav.setObjectName("nav"); self.characters_nav.setCheckable(True); self.characters_nav.clicked.connect(lambda: self.set_page(1)); side.addWidget(self.characters_nav)
++        self.strategic_nav = QPushButton("🗺   Стратегический узел"); self.strategic_nav.setObjectName("nav"); self.strategic_nav.setCheckable(True); self.strategic_nav.clicked.connect(lambda: self.set_page(2)); side.addWidget(self.strategic_nav)
++        self.dd_nav = QPushButton("🩸   Бой в стиле Darkest Dungeon"); self.dd_nav.setObjectName("nav"); self.dd_nav.setCheckable(True); self.dd_nav.clicked.connect(lambda: self.set_page(3)); side.addWidget(self.dd_nav)
++        self.lss_nav = QPushButton("📥   Импорт из LSS"); self.lss_nav.setObjectName("nav"); self.lss_nav.setCheckable(True); self.lss_nav.clicked.connect(lambda: self.set_page(4)); side.addWidget(self.lss_nav)
++        self.lss_charm_nav = QPushButton("📖   Чарники LSS"); self.lss_charm_nav.setObjectName("nav"); self.lss_charm_nav.setCheckable(True); self.lss_charm_nav.clicked.connect(lambda: self.set_page(5)); side.addWidget(self.lss_charm_nav)
++        self.calculators_nav = QPushButton("🧮   Калькуляторы"); self.calculators_nav.setObjectName("nav"); self.calculators_nav.setCheckable(True); self.calculators_nav.clicked.connect(lambda: self.set_page(6)); side.addWidget(self.calculators_nav)
+         if self.is_gm():
+             import_creature = QPushButton("＋   ИМПОРТ МОБА / БОССА"); import_creature.setObjectName("primary"); import_creature.clicked.connect(lambda: self.import_character("enemy")); side.addWidget(import_creature)
+         side.addStretch()
+@@ -813,7 +821,10 @@ class MainWindow(QMainWindow):
+         self.engine = BattleEngine(self.campaign)
+         while self.stack.count():
+             widget = self.stack.widget(0); self.stack.removeWidget(widget); widget.deleteLater()
+-        self.stack.addWidget(BattlePage(self)); self.stack.addWidget(CharactersPage(self)); self.stack.setCurrentIndex(self.current_page)
++        self.stack.addWidget(BattlePage(self)); self.stack.addWidget(CharactersPage(self))
++        self.stack.addWidget(StrategicStage(self)); self.stack.addWidget(DDBattleStage(self))
++        self.stack.addWidget(LSSImportPage(self)); self.stack.addWidget(self._lss_charm_page(self))
++        self.stack.addWidget(self._calculators_page(self)); self.stack.setCurrentIndex(self.current_page)
+         self.battle_nav.setChecked(self.current_page == 0); self.characters_nav.setChecked(self.current_page == 1)
+         self.characters_nav.setText("♙   Персонажи" if self.is_gm() else "♙   Мой персонаж")
+         self.role_label.setText(("МАСТЕР" if self.is_gm() else "ИГРОК") + (f"\nКомната {self.network.room_code}" if self.network else "\nЛокальный режим"))
+@@ -824,6 +835,15 @@ class MainWindow(QMainWindow):
+     def set_page(self, index: int) -> None:
+         self.current_page = index; self.refresh()
+ 
++    def _sync_nav_checks(self) -> None:
++        self.battle_nav.setChecked(self.current_page == 0)
++        self.characters_nav.setChecked(self.current_page == 1)
++        self.strategic_nav.setChecked(self.current_page == 2)
++        self.dd_nav.setChecked(self.current_page == 3)
++        self.lss_nav.setChecked(self.current_page == 4)
++        self.lss_charm_nav.setChecked(self.current_page == 5)
++        self.calculators_nav.setChecked(self.current_page == 6)
++
+     def is_gm(self) -> bool:
+         return self.campaign.role == "gm"
+ 
+@@ -1160,6 +1180,123 @@ class MainWindow(QMainWindow):
+             self.last_banner = f"Сеть: {exc}"
+         finally: self.network_syncing = False
+ 
++    def _lss_charm_page(self, window: "MainWindow") -> QWidget:
++        """Страница чарников LSS: список импортированных чарников и быстрый просмотр."""
++        container = QWidget(); container.setObjectName("root")
++        root = QVBoxLayout(container); root.setContentsMargins(0, 0, 0, 0)
++
++        header = QHBoxLayout()
++        title = QLabel("ЧАРНИКИ LSS"); title.setObjectName("title"); header.addWidget(title, 1)
++        header.addStretch()
++        root.addLayout(header)
++
++        desc = QLabel(
++            "Чарники из Long Story Short — готовые действия, спасброски, урон и дистанции.\\n"
++            "Перетаскивайте или импортируйте отдельные чары. Любой чар можно отредактировать в листе участника."
++        )
++        desc.setWordWrap(True); desc.setStyleSheet("color: #807874; font-size: 11px; padding: 8px 16px;")
++        root.addWidget(desc)
++
++        list_frame = QFrame(); list_frame.setObjectName("panel")
++        list_layout = QVBoxLayout(list_frame)
++        list_title = QLabel("ИМПОРТИРОВАННЫЕ ЧАРНИКИ"); list_title.setObjectName("section")
++        list_layout.addWidget(list_title)
++        self._lss_charm_list = QListWidget()
++        self._lss_charm_list.setMinimumHeight(180)
++        self._lss_charm_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
++        list_layout.addWidget(self._lss_charm_list, 1)
++
++        buttons = QHBoxLayout()
++        refresh_charms = QPushButton("Обновить из LSS")
++        refresh_charms.clicked.connect(self._refresh_lss_charms)
++        buttons.addWidget(refresh_charms)
++        export_charm = QPushButton("Экспорт выделенного")
++        export_charm.clicked.connect(self._export_selected_charm)
++        buttons.addWidget(export_charm)
++        buttons.addStretch()
++        list_layout.addLayout(buttons)
++
++        root.addWidget(list_frame, 1)
++
++        preview_frame = QFrame(); preview_frame.setObjectName("panel")
++        preview_layout = QVBoxLayout(preview_frame)
++        preview_title = QLabel("ПРЕДПРОСМОТР ЧАРА"); preview_title.setObjectName("section")
++        preview_layout.addWidget(preview_title)
++        self._lss_charm_preview = QLabel("Выделите чарник для предпросмотра.")
++        self._lss_charm_preview.setWordWrap(True)
++        self._lss_charm_preview.setStyleSheet("color: #c6c0b8; font-size: 13px; padding: 10px 14px; background:#0d0b0c; border:1px solid #3a3030;")
++        preview_layout.addWidget(self._lss_charm_preview, 1)
++        root.addWidget(preview_frame, 1)
++
++        empty_note = QLabel(
++            "Пусто: импортируйте чарники через страницу «Импорт из LSS» или вставьте текст чара вручную.\\n"
++            "Каждый чарник сохраняется как редактируемое действие на листе участника."
++        )
++        empty_note.setWordWrap(True); empty_note.setObjectName("muted")
++        root.addWidget(empty_note)
++
++        return container
++
++    def _refresh_lss_charms(self) -> None:
++        """Заполнить список чарников последней LSS-сессии (заглушка)."""
++        sample = [
++            "Пример: Удар мечом · 1d8+3 урона · дальн. 5 фт · спасбросок ЛОВ · 1d20+3 — ПРОМАХ",
++            "Пример: Магическая вспышка · 2d6 урона · дистанция 30 фт · нет спасброска",
++        ]
++        self._lss_charm_list.clear()
++        self._lss_charm_list.addItems(sample)
++
++    def _export_selected_charm(self) -> None:
++        """Создать действие из выделенного чарника (заглушка)."""
++        row = self._lss_charm_list.currentRow()
++        if row < 0:
++            return self._lss_charm_preview.setText("Выделите чарник перед экспортом.")
++        self._lss_charm_preview.setText(
++            "Экспорт пока не реализован: свяжите чарник с участником через лист (правка действия)."
++        )
++
++    def _calculators_page(self, window: "MainWindow") -> QWidget:
++        """Страница калькуляторов для визуализации боевых расчётов."""
++        container = QWidget(); container.setObjectName("root")
++        root = QVBoxLayout(container); root.setContentsMargins(0, 0, 0, 0)
++        
++        header = QHBoxLayout()
++        title = QLabel("КАЛЬКУЛЯТОРЫ БОЯ"); title.setObjectName("title"); header.addWidget(title, 1)
++        header.addStretch()
++        root.addLayout(header)
++        
++        desc = QLabel(
++            "Визуальные расчёты для подготовки боя.\n"
++            "Бросайте кубы, сравнивайте КД, рассчитывайте спасброски и инициативу.\n"
++            "Все параметры редактируются — подгоните расчёт под свою ситуацию."
++        )
++        desc.setWordWrap(True); desc.setStyleSheet("color: #807874; font-size: 11px; padding: 8px 16px;")
++        root.addWidget(desc)
++        
++        # Вкладки калькуляторов
++        tabs = QTabWidget()
++        tabs.addTab(DamageCalculator(), "Урон и попадания")
++        tabs.addTab(SaveDCcalculator(), "Спасброски и DC")
++        tabs.addTab(ACComparison(), "Сравнение КД")
++        tabs.addTab(InitiativeTracker(), "Инициатива")
++        
++        # Подсказки для каждой вкладки
++        tips = QFrame(); tips.setObjectName("panel")
++        tips_layout = QVBoxLayout(tips)
++        tip_title = QLabel("РЕДАКТИРУЕМЫЕ ПАРАМЕТРЫ"); tip_title.setObjectName("section"); tips_layout.addWidget(tip_title)
++        
++        tip_data = QLabel(
++            "Урон и попадания: формула броска, бонус атаки, КД цели, режим крита\n"
++            "Спасброски: DC, характеристика, модификатор, урон/лечение, половина урона\n"
++            "Сравнение КД: КД защищающегося/нападающего, преимущества, бонусы/пенальти\n"
++            "Инициатива: список участников, бонусы, броски, очередь ходов"
++        )
++        tip_data.setWordWrap(True); tip_data.setObjectName("muted"); tips_layout.addWidget(tip_data)
++        root.addWidget(tips, 1)
++        
++        root.addWidget(tabs, 1)
++        return container
++
+     def closeEvent(self, event):  # type: ignore[override]
+         if not self.network or self.is_gm(): save_campaign(self.campaign)
+         if self.embedded_server:
