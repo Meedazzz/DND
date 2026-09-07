@@ -80,3 +80,32 @@ def test_missing_fields_are_warned_not_invented_from_context():
     assert result.combatant.hp == 10
     assert not result.combatant.actions
     assert len(result.warnings) >= 4
+
+
+def test_plain_name_field_does_not_create_lss_actions():
+    source = "Имя: Гоблин\nКД: 12\nОЗ: 10\nСкорость: 30 фт"
+    result = parse_stat_block(source, "enemy")
+    actor = result.combatant
+    assert actor.name == "Гоблин"
+    assert not actor.actions
+    assert not any(item.startswith("LSS:") for item in result.found)
+
+
+def test_lss_char_marker_is_parsed_with_range_60():
+    source = (
+        "Имя:char:Italia\n"
+        "Уровень:1\n"
+        "Использование:1/1\n"
+        "Расход ресурса:1 за распределение\n"
+        "Дистанция:60 футов\n"
+        "Компоненты: V, S\n"
+        "Длительность: 1 минута\n"
+        "Описание:You can speak one language you are not proficient in for the duration."
+    )
+    result = parse_stat_block(source, "enemy")
+    actor = result.combatant
+    lss_actions = [action for action in actor.actions if action.name == "Italia"]
+    assert len(lss_actions) == 1
+    assert lss_actions[0].range_ft == 60
+    assert lss_actions[0].kind == "utility"
+    assert "LSS: Italia" in result.found

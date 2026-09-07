@@ -52,6 +52,13 @@ DAMAGE_WORDS = (
     "cold", "acid", "lightning", "thunder", "poison", "psychic", "force", "radiant", "necrotic",
 )
 
+LSS_NAME_KINDS = {"char", "characteristic", "spell", "charm"}
+
+
+def _looks_like_lss_charm(text: str) -> bool:
+    """True, если текст начинается с LSS-маркера вида ``Имя:char:…`` / ``Name:spell:…``."""
+    return bool(re.search(r"(?im)^(?:Имя|Name)\s*:\s*(?:char|characteristic|spell|charm)\s*:", text))
+
 
 def _first(patterns: list[str], text: str, flags: int = re.I | re.M | re.S) -> re.Match[str] | None:
     for pattern in patterns:
@@ -302,6 +309,8 @@ def _parse_lss_charm_format(text: str) -> list[Action]:
     """
     if not text or not isinstance(text, str):
         return []
+    if not _looks_like_lss_charm(text):
+        return []
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     actions = []
@@ -318,12 +327,10 @@ def _parse_lss_charm_format(text: str) -> list[Action]:
     for line in lines:
         lower = line.lower()
         if line.startswith("Имя:") or line.startswith("Name:"):
-            # Имя может быть в формате "Имя:char:Italia"
+            # Имя задаётся ТОЛЬКО в формате "Имя:char:Italia" (или characteristic/spell/charm).
             parts = line.split(":", 2)
-            if len(parts) >= 3 and parts[1] in ("char", "characteristic"):
+            if len(parts) >= 3 and parts[1].strip().casefold() in LSS_NAME_KINDS:
                 name = parts[2].strip()
-            elif len(parts) >= 2:
-                name = parts[1].strip()
         elif "использ" in lower or "исп" in lower:
             usage = line.split(":", 1)[-1].strip()
         elif lower.startswith("дистан") or lower.startswith("range"):
@@ -592,7 +599,7 @@ def parse_stat_block(source: str, side: str = "enemy") -> ParseResult:
     # ---- LSS-формат: импорт чар и спеллов из Long Story Short ----
     # Если в тексте встречается формат "Имя:char:..." или "Имя:spell:...",
     # пробуем распарсить его как отдельные акции.
-    lss_actions = _parse_lss_charm_format(source)
+    lss_actions = _parse_lss_charm_format(source) if _looks_like_lss_charm(source) else []
     for lss_action in lss_actions:
         if lss_action not in combatant.actions:
             combatant.actions.append(lss_action)

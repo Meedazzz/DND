@@ -21,10 +21,18 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QListWidget,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
