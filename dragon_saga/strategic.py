@@ -22,6 +22,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -254,7 +255,7 @@ class StrategicBattle:
     """Стратегическая битва — два лагеря + поле + очередь."""
 
     armies: dict[str, Army] = field(default_factory=dict)  # side → Army
-    field: GridField | None = None
+    grid: GridField | None = None
     turn_index: int = 0
     current_turn: str = "hero"
     active: bool = False

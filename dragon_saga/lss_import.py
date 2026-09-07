@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
