@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .models import ABILITIES
+from .encounter import assess, normalize_cr
+from .models import ABILITIES, ZONES
 from .rules import BattleEngine, RuleError
 
 
@@ -718,3 +719,115 @@ class InitiativeTracker(QWidget):
         self.current_turn_label.setText("—")
         self.refresh_list()
         self.refresh_queue()
+
+
+class EncounterCalculator(QWidget):
+    """Конструктор встреч: XP-бюджет партии против списка CR (таблицы 2014)."""
+
+    def __init__(self, window=None, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.window = window
+        self.init_ui()
+
+    def init_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        title = QLabel("КОНСТРУКТОР ВСТРЕЧ")
+        title.setObjectName("section")
+        layout.addWidget(title)
+
+        party_row = QHBoxLayout()
+        party_row.addWidget(QLabel("Уровни партии:"))
+        self.party_input = QLineEdit("3, 3, 3, 4")
+        self.party_input.setPlaceholderText("Например: 3, 3, 3, 4")
+        party_row.addWidget(self.party_input, 1)
+        layout.addLayout(party_row)
+
+        enemy_row = QHBoxLayout()
+        enemy_row.addWidget(QLabel("CR противников:"))
+        self.enemy_input = QLineEdit("1/4, 1/4, 1/4, 2")
+        self.enemy_input.setPlaceholderText("Например: 1/4, 1/4, 2")
+        enemy_row.addWidget(self.enemy_input, 1)
+        layout.addLayout(enemy_row)
+
+        buttons = QHBoxLayout()
+        calculate = QPushButton("РАССЧИТАТЬ")
+        calculate.setObjectName("primary")
+        calculate.clicked.connect(self.calculate)
+        buttons.addWidget(calculate)
+        from_scene = QPushButton("Взять со сцены")
+        from_scene.setToolTip("Уровни героев и CR выставленных противников текущей кампании")
+        from_scene.setEnabled(self.window is not None)
+        from_scene.clicked.connect(self.fill_from_scene)
+        buttons.addWidget(from_scene)
+        buttons.addStretch()
+        layout.addLayout(buttons)
+
+        self.result_label = QLabel("Введите уровни героев и CR противников.")
+        self.result_label.setWordWrap(True)
+        self.result_label.setStyleSheet("font-family: Georgia; font-size: 15px; color: #f0e4d8; padding: 10px; background: #1a1414; border: 1px solid #3a3030;")
+        layout.addWidget(self.result_label)
+
+        self.thresholds_label = QLabel("")
+        self.thresholds_label.setWordWrap(True)
+        self.thresholds_label.setStyleSheet("color: #9a8e86; padding: 6px 10px; font-size: 12px;")
+        layout.addWidget(self.thresholds_label, 1)
+
+        hint = QLabel(
+            "Скорректированный опыт = сырой XP × множитель численности (2 врага ×1.5, 3–6 ×2, 7–10 ×2.5).\n"
+            "Сравнение идёт с порогами партии: пустяковая → лёгкая → средняя → тяжёлая → смертельная."
+        )
+        hint.setWordWrap(True)
+        hint.setObjectName("muted")
+        layout.addWidget(hint)
+
+    def fill_from_scene(self) -> None:
+        if self.window is None:
+            return
+        campaign = self.window.campaign
+        levels = [str(max(1, c.level)) for c in campaign.characters if c.side == "hero"]
+        crs = []
+        skipped = 0
+        for c in campaign.characters:
+            if c.side == "hero" or campaign.battle.positions.get(c.id) not in ZONES:
+                continue
+            if c.challenge_rating:
+                crs.append(normalize_cr(c.challenge_rating))
+            else:
+                skipped += 1
+        if levels:
+            self.party_input.setText(", ".join(levels))
+        if crs:
+            self.enemy_input.setText(", ".join(crs))
+        elif skipped:
+            self.result_label.setText("На сцене нет противников с указанным CR — задайте вручную.")
+        self.calculate()
+
+    def calculate(self) -> None:
+        try:
+            levels = [int(x.strip()) for x in self.party_input.text().split(",") if x.strip()]
+            crs = [x.strip() for x in self.enemy_input.text().split(",") if x.strip()]
+            report = assess(levels, crs)
+        except (ValueError, KeyError) as exc:
+            self.result_label.setStyleSheet("font-family: Georgia; font-size: 14px; color: #ff9999; padding: 10px; background: #2a1a1a; border: 1px solid #cc4444;")
+            self.result_label.setText(f"Проверьте ввод: {exc}")
+            return
+        colors = {
+            "пустяковая": ("#a8b0a2", "#1a1c1a", "#4a524a"),
+            "лёгкая": ("#a8d5a2", "#1a2a1a", "#4a8a4a"),
+            "средняя": ("#e5c97a", "#2a2414", "#8a743a"),
+            "тяжёлая": ("#e5a06a", "#2a1d14", "#8a5a3a"),
+            "смертельная": ("#ff8b7b", "#2a1414", "#cc4434"),
+        }
+        text, background, border = colors[report.difficulty]
+        self.result_label.setStyleSheet(f"font-family: Georgia; font-size: 15px; color: {text}; padding: 10px; background: {background}; border: 1px solid {border};")
+        self.result_label.setText(
+            f"⚔ {report.difficulty.upper()}\n"
+            f"Сырой опыт: {report.raw_xp} XP  ·  скорректированный: {report.adjusted_xp} (×{report.multiplier:g} за {report.monsters})\n"
+            f"Награда: {report.per_character_xp} XP на героя"
+        )
+        t = report.thresholds
+        self.thresholds_label.setText(
+            f"Пороги партии: лёгкий {t['лёгкий']} · средний {t['средний']} · тяжёлый {t['тяжёлый']} · смертельный {t['смертельный']} XP"
+        )

@@ -276,6 +276,9 @@ class BattleEngine:
             before = target.hp
             target.hp = min(target.max_hp, target.hp + amount)
             damage = -(target.hp - before)
+            if before == 0 and target.hp > 0:
+                target.conditions = [c for c in target.conditions if c not in {"Без сознания", "Стабилизирован"}]
+                self.stabilize_reset(target.id)
             detail = f"Лечение · {actor.name} → {target.name}: +{target.hp - before} ОЗ"
         else:
             detail = f"{actor.name}: {action.name}"
@@ -331,6 +334,65 @@ class BattleEngine:
         flags["bonus"] = False
         self.log(f"Тактическая передышка · {actor.name}: +{actual} ОЗ")
         return actual
+
+    def death_status(self, actor_id: str) -> tuple[int, int]:
+        """Отметки спасбросков от смерти: (успехи, провалы) 0..3."""
+        flags = self._flag(actor_id)
+        return int(flags.get("death_successes", 0)), int(flags.get("death_failures", 0))
+
+    def death_save(self, actor_id: str) -> ActionResult:
+        """Спасбросок от смерти: 10+ успех, нат. 1 — два провала, нат. 20 — 1 ОЗ.
+
+        Три успеха стабилизируют, три провала убивают участника. Отметки
+        хранятся в боевых флагах и сбрасываются при исходе или исцелении.
+        """
+        actor = self._actor(actor_id)
+        if actor.hp > 0:
+            raise RuleError("Спасброски от смерти нужны только при 0 ОЗ")
+        if "Мёртв" in actor.conditions or "Стабилизирован" in actor.conditions:
+            raise RuleError("Исход для этого участника уже решён")
+        flags = self._flag(actor_id)
+        successes, failures = self.death_status(actor_id)
+        _, dice, natural = self.d20(0)
+        if natural == 20:
+            actor.hp = 1
+            actor.conditions = [c for c in actor.conditions if c != "Без сознания"]
+            flags["death_successes"] = 0
+            flags["death_failures"] = 0
+            detail = f"Спасбросок от смерти · {actor.name}: НАТУРАЛЬНАЯ 20 — {actor.name} приходит в себя с 1 ОЗ!"
+            self.log(detail)
+            return ActionResult("Спасбросок от смерти", detail, True, -1)
+        if natural == 1:
+            failures += 2
+            mark = "критический провал (две отметки)"
+        elif natural >= 10:
+            successes += 1
+            mark = "успех"
+        else:
+            failures += 1
+            mark = "провал"
+        outcome = ""
+        if successes >= 3:
+            actor.conditions.append("Стабилизирован")
+            successes = failures = 0
+            outcome = " — три успеха: стабилизирован, остаётся при 0 ОЗ"
+        elif failures >= 3:
+            actor.conditions.append("Мёртв")
+            actor.conditions = [c for c in actor.conditions if c != "Без сознания"]
+            successes = failures = 0
+            outcome = " — три провала: погибает"
+        flags["death_successes"] = successes
+        flags["death_failures"] = failures
+        tally = f"✓{successes} ✗{failures}" if not outcome else "исход решён"
+        detail = f"Спасбросок от смерти · {actor.name}: {dice[0]} — {mark} ({tally}){outcome}"
+        self.log(detail)
+        return ActionResult("Спасбросок от смерти", detail, successes > 0 or bool(outcome))
+
+    def stabilize_reset(self, actor_id: str) -> None:
+        """Снять отметки спасбросков (ведомый подняли с 0 ОЗ)."""
+        flags = self._flag(actor_id)
+        flags.pop("death_successes", None)
+        flags.pop("death_failures", None)
 
     def telegraph(self, boss_id: str, action_name: str, dc: int, counter: str) -> None:
         boss = self._actor(boss_id)

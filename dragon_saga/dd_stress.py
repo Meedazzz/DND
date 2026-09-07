@@ -381,114 +381,6 @@ class DDBattleStage(QWidget):
         desc.setObjectName("muted")
         layout.addWidget(desc)
 
-        # Позиции (редактируемые)
-        position_label = QLabel("Позиции участников (редактируемые):")
-        position_label.setObjectName("muted")
-        layout.addWidget(position_label)
-
-        self.position_frame = QFrame()
-        self.position_frame.setObjectName("panel")
-        pos_layout = QHBoxLayout(self.position_frame)
-
-        pos_left = QVBoxLayout()
-        pos_left.addWidget(QLabel("Участники фронта"))
-        self.front_list = QListWidget()
-        self.front_list.setMaximumHeight(60)
-        pos_left.addWidget(self.front_list)
-        pos_left.addStretch()
-
-        pos_right = QVBoxLayout()
-        pos_right.addWidget(QLabel("Участники тыла"))
-        self.rear_list = QListWidget()
-        self.rear_list.setMaximumHeight(60)
-        pos_right.addWidget(self.rear_list)
-        pos_right.addStretch()
-
-        pos_layout.addLayout(pos_left, 1)
-        pos_layout.addLayout(pos_right, 1)
-        layout.addWidget(self.position_frame)
-
-        # Инструменты перемещения
-        move_label = QLabel("Перемещение между позициями (редактируемое):")
-        move_label.setObjectName("muted")
-        layout.addWidget(move_label)
-
-        move_row = QHBoxLayout()
-        move_to_rear = QPushButton("Переместить выбранного в тыл")
-        move_to_rear.clicked.connect(self._move_to_rear)
-        move_row.addWidget(move_to_rear)
-
-        move_to_front = QPushButton("Переместить выбранного на фронт")
-        move_to_front.clicked.connect(self._move_to_front)
-        move_row.addWidget(move_to_front)
-
-        swap_button = QPushButton("Обмен позициями (фронт ↔ тыл)")
-        swap_button.clicked.connect(self._swap_positions)
-        move_row.addWidget(swap_button)
-
-        move_row.addStretch()
-        layout.addLayout(move_row)
-
-        # Стресс и крит-эффекты (редактируемые)
-        effects_label = QLabel("Стресс и критические эффекты (редактируемые):")
-        effects_label.setObjectName("muted")
-        layout.addWidget(effects_label)
-
-        self.effects_frame = QFrame()
-        self.effects_frame.setObjectName("panel")
-        effects_layout = QHBoxLayout(self.effects_frame)
-
-        self.stress_spin = QSpinBox()
-        self.stress_spin.setRange(0, 100)
-        self.stress_spin.setValue(0)
-        self.stress_spin.setSuffix(" стресса")
-        effects_layout.addWidget(QLabel("Стресс:"))
-        effects_layout.addWidget(self.stress_spin)
-
-        self.crit_label = QLabel("Крит. эффекты (через запятую):")
-        effects_layout.addWidget(self.crit_label)
-        self.crit_effects_edit = QLineEdit("")
-        effects_layout.addWidget(self.crit_effects_edit, 1)
-        layout.addLayout(effects_layout)
-
-        # Панель текущего хода
-        self.round_panel = DDRoundPanel()
-        layout.addWidget(self.round_panel)
-
-        # Кнопки управления
-        buttons_layout = QHBoxLayout()
-        self.start_button = QPushButton("Начать раунд")
-        self.start_button.setObjectName("primary")
-        self.start_button.clicked.connect(self._start_round)
-        self.end_button = QPushButton("Завершить раунд")
-        self.end_button.clicked.connect(self._end_round)
-        buttons_layout.addWidget(self.start_button)
-        buttons_layout.addWidget(self.end_button)
-        layout.addLayout(buttons_layout)
-
-    def init_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        title = QLabel("БОЙ В СТИЛЕ DARKEST DUNGEON · заглушка")
-        title.setObjectName("title")
-        layout.addWidget(title)
-
-        desc = QLabel(
-            "Это заглушка режима Darkest Dungeon.\n"
-            "Позже здесь будут:\n"
-            "- Позиции: фронт / тыл / окружённый.\n"
-            "- Стресс: накопление стресса и пороговые эффекты (безнадёжность, внезапная смерть).\n"
-            "- Критические удары и критические промахи с эффектами.\n"
-            "- Очередь участников с перемещением между позициями.\n"
-            "\n"
-            "Пока — заглушка с понятным интерфейсом. Редактируй DDParticipant "
-            "и DDRoundPanel для настройки механик."
-        )
-        desc.setWordWrap(True)
-        desc.setObjectName("muted")
-        layout.addWidget(desc)
-
         # Позиции (заглушка)
         position_label = QLabel("Позиции участников (редактируемые):")
         position_label.setObjectName("muted")
@@ -532,7 +424,7 @@ class DDBattleStage(QWidget):
         effects_layout.addWidget(self.crit_effects_label)
         self.crit_effects_edit = QLineEdit("")
         effects_layout.addWidget(self.crit_effects_edit)
-        layout.addLayout(effects_layout)
+        layout.addWidget(self.effects_frame)
 
         # Панель текущего хода
         self.round_panel = DDRoundPanel()

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
+from . import assets, bestiary, conditions
 from .models import ABILITIES, Action, Campaign, Combatant, ZONES, starter_campaign, Resource
 from .network import NetworkClient, NetworkError
 from .parser import parse_stat_block, _parse_lss_charm_format
@@ -25,7 +26,26 @@ from .storage import DEFAULT_SAVE, load_campaign, save_campaign
 from .strategic import StrategicStage, UnitToken
 from .dd_stress import DDBattleStage, DDParticipant, StressLevel, Position
 from .lss_import import LSSImportPage
-from .calculators import DamageCalculator, SaveDCcalculator, ACComparison, InitiativeTracker
+from .calculators import DamageCalculator, SaveDCcalculator, ACComparison, InitiativeTracker, EncounterCalculator
+
+
+_PIXMAP_CACHE: dict[tuple[str, int, int], QPixmap] = {}
+
+
+def load_pixmap(path: str, width: int, height: int, expand: bool = False) -> QPixmap | None:
+    """Загрузить и масштабировать изображение с кэшем (интерфейс пересобирается часто)."""
+    key = (path, width, height)
+    if key in _PIXMAP_CACHE:
+        return _PIXMAP_CACHE[key]
+    if len(_PIXMAP_CACHE) > 160:
+        _PIXMAP_CACHE.clear()
+    pixmap = QPixmap(path)
+    if pixmap.isNull():
+        return None
+    mode = Qt.AspectRatioMode.KeepAspectRatioByExpanding if expand else Qt.AspectRatioMode.KeepAspectRatio
+    scaled = pixmap.scaled(width, height, mode, Qt.TransformationMode.SmoothTransformation)
+    _PIXMAP_CACHE[key] = scaled
+    return scaled
 
 
 APP_ICON_SVG = b'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#172023"/><path d="M95 377L190 104l66 116 66-116 95 273-98-82-63 113-63-113z" fill="#758b7e" stroke="#d2ad6d" stroke-width="18" stroke-linejoin="round"/><circle cx="256" cy="260" r="30" fill="#d2ad6d"/></svg>'''
@@ -109,12 +129,24 @@ class Portrait(QWidget):
         painter.setPen(QPen(QColor("#5c4841"), 1)); painter.drawLine(rect.left(), rect.bottom(), rect.left(), rect.top() + 30); painter.drawLine(rect.right(), rect.bottom(), rect.right(), rect.top() + 30)
         arch = QPainterPath(); arch.moveTo(rect.left(), rect.top() + 30); arch.quadTo(rect.center().x(), rect.top() - 11, rect.right(), rect.top() + 30)
         painter.setBrush(Qt.BrushStyle.NoBrush); painter.drawPath(arch)
+        drawn = False
         if self.combatant.image_path and Path(self.combatant.image_path).is_file():
-            pixmap = QPixmap(self.combatant.image_path)
-            if not pixmap.isNull():
-                scaled = pixmap.scaled(rect.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            scaled = load_pixmap(self.combatant.image_path, max(1, rect.width()), max(1, rect.height()))
+            if scaled and not scaled.isNull():
                 painter.drawPixmap(rect.center().x() - scaled.width() // 2, rect.bottom() - scaled.height(), scaled)
-        else:
+                drawn = True
+        if not drawn:
+            placeholder = assets.portrait_path_for(self.combatant)
+            if placeholder is not None:
+                scaled = load_pixmap(str(placeholder), max(1, rect.width()), max(1, rect.height()), expand=True)
+                if scaled and not scaled.isNull():
+                    # Центральный кадр: арт заполняет слот целиком, стык скрыт под рамкой арки.
+                    source = scaled if scaled.width() <= rect.width() and scaled.height() <= rect.height() else scaled.copy(
+                        max(0, (scaled.width() - rect.width()) // 2), max(0, (scaled.height() - rect.height()) // 3),
+                        min(scaled.width(), rect.width()), min(scaled.height(), rect.height()))
+                    painter.drawPixmap(rect, source, source.rect())
+                    drawn = True
+        if not drawn:
             center_x = rect.center().x(); bottom = rect.bottom() - 3
             scale = min(rect.width() / 105, rect.height() / 175) * self.combatant.model_scale / 100
             silhouette = QColor("#5f5b5b" if self.combatant.side == "hero" else "#6d4b49")
@@ -209,9 +241,11 @@ class ImportDialog(QDialog):
         role = self.side.currentText().upper()
         ability = " &nbsp; ".join(f"<b>{key.upper()}</b> {c.stats[key]}" for key in ABILITIES)
         resource_lines = "".join(f"<li>{html.escape(r.name)}: <b>{r.current}/{r.maximum}</b> · {html.escape(r.recovery)}</li>" for r in c.resources) or "<li>Не найдены</li>"
+        section_ru = {"actions": "действие", "bonus": "бонусное", "reactions": "реакция", "legendary": "легендарное"}
+        kind_ru = {"attack": "атака", "save": "спасбросок", "damage": "урон", "heal": "лечение", "utility": "особое"}
         action_lines = "".join(
-            f"<li><b>{html.escape(a.name)}</b> · {html.escape(a.section)} · {html.escape(a.kind)} · "
-            f"{html.escape(a.damage)}{(' · recharge '+html.escape(a.recharge)) if a.recharge else ''}</li>" for a in c.actions
+            f"<li><b>{html.escape(a.name)}</b> · {section_ru.get(a.section, html.escape(a.section))} · {kind_ru.get(a.kind, html.escape(a.kind))} · "
+            f"{html.escape(a.damage)}{(' · перезарядка '+html.escape(a.recharge)) if a.recharge else ''}</li>" for a in c.actions
         ) or "<li>Не найдены — сохранённый исходник позволит добавить их вручную</li>"
         found = " · ".join(html.escape(x) for x in result.found) or "нет"
         warnings = "".join(f"<li>{html.escape(x)}</li>" for x in result.warnings) or "<li>Нет предупреждений</li>"
@@ -358,6 +392,118 @@ class ResourceDialog(QDialog):
         return self.resource
 
 
+class ConditionsDialog(QDialog):
+    """Выбор состояний по каталогу D&D 5e с поиском, описаниями и своими отметками."""
+
+    def __init__(self, actor: Combatant, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Состояния · {actor.name}")
+        self.resize(680, 560)
+        root = QVBoxLayout(self); root.setContentsMargins(16, 14, 16, 14); root.setSpacing(8)
+        heading = QLabel("Каталог состояний"); heading.setObjectName("title"); root.addWidget(heading)
+        hint = QLabel("Отметьте состояния из правил 2014/2024 или добавьте свои через запятую. Трактовка спорных случаев остаётся за мастером.")
+        hint.setWordWrap(True); hint.setObjectName("muted"); root.addWidget(hint)
+        self.search = QLineEdit(); self.search.setPlaceholderText("Поиск: испуг, prone, ослеп…")
+        self.search.textChanged.connect(self._rebuild); root.addWidget(self.search)
+        known, custom = conditions.split_known(actor.conditions)
+        self._boxes: dict[str, QCheckBox] = {}
+        self._rows: dict[str, QFrame] = {}
+        self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget(); self.scroll_layout = QVBoxLayout(self.scroll_content); self.scroll_layout.setSpacing(2)
+        self.scroll_area.setWidget(self.scroll_content); root.addWidget(self.scroll_area, 1)
+        for condition in conditions.all():
+            box = QCheckBox(condition.name_ru); box.setChecked(condition.name_ru in known)
+            row = QFrame(); row.setObjectName("panel"); row_layout = QVBoxLayout(row); row_layout.setContentsMargins(10, 6, 10, 6); row_layout.setSpacing(1)
+            title_row = QHBoxLayout(); title_row.addWidget(box)
+            eng = QLabel(condition.name_en + (" · служебная" if condition.special else "")); eng.setObjectName("muted"); title_row.addWidget(eng); title_row.addStretch()
+            row_layout.addLayout(title_row)
+            summary = QLabel(condition.summary); summary.setWordWrap(True); summary.setStyleSheet("color:#9a8e86;font-size:11px"); row_layout.addWidget(summary)
+            self.scroll_layout.addWidget(row)
+            self._boxes[condition.name_ru] = box; self._rows[condition.name_ru] = row
+        self.scroll_layout.addStretch()
+        custom_row = QHBoxLayout(); custom_row.addWidget(QLabel("Свои отметки:"))
+        self.custom = QLineEdit(", ".join(custom)); self.custom.setPlaceholderText("Например: Горение 1d6, Метка охотника")
+        custom_row.addWidget(self.custom, 1); root.addLayout(custom_row)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        visible = {c.name_ru for c in conditions.search(self.search.text())}
+        for name, row in self._rows.items():
+            row.setVisible(name in visible)
+
+    def selected(self) -> list[str]:
+        chosen = [name for name, box in self._boxes.items() if box.isChecked()]
+        chosen.extend(x.strip() for x in self.custom.text().split(",") if x.strip())
+        return chosen
+
+
+class BestiaryDialog(QDialog):
+    """Встроенный бестиарий: готовые существа с предпросмотром и выводом на сцену."""
+
+    def __init__(self, window: "MainWindow"):
+        super().__init__(window)
+        self.window = window
+        self.chosen_id = ""
+        self.setWindowTitle("Бестиарий «Драконьей Саги»")
+        self.resize(1000, 640)
+        root = QVBoxLayout(self); root.setContentsMargins(18, 16, 18, 16); root.setSpacing(10)
+        eyebrow = QLabel("ГОТОВЫЕ СУЩЕСТВА · МОБЫ / ЭЛИТА / БОССЫ"); eyebrow.setObjectName("eyebrow"); root.addWidget(eyebrow)
+        head = QHBoxLayout()
+        title = QLabel("Бестиарий"); title.setObjectName("title"); head.addWidget(title, 1)
+        self.filter = QComboBox(); self.filter.addItem("Все ранги", ""); self.filter.addItem("Мобы", "mob"); self.filter.addItem("Элита", "elite"); self.filter.addItem("Боссы", "boss")
+        self.filter.currentIndexChanged.connect(self._rebuild); head.addWidget(self.filter)
+        self.search = QLineEdit(); self.search.setPlaceholderText("Поиск по имени…"); self.search.setMinimumWidth(200)
+        self.search.textChanged.connect(self._rebuild); head.addWidget(self.search); root.addLayout(head)
+        split = QSplitter(); split.setChildrenCollapsible(False)
+        self.listing = QListWidget(); self.listing.currentRowChanged.connect(self._preview); split.addWidget(self.listing)
+        self.preview = QTextEdit(); self.preview.setObjectName("preview"); self.preview.setReadOnly(True); split.addWidget(self.preview)
+        split.setSizes([360, 560]); root.addWidget(split, 1)
+        bottom = QHBoxLayout()
+        bottom.addWidget(QLabel("Количество:"))
+        self.count = QSpinBox(); self.count.setRange(1, 6); self.count.setValue(1); bottom.addWidget(self.count)
+        note = QLabel("Портретная заглушка и позиция подбираются по рангу; при группе существа нумеруются римскими цифрами.")
+        note.setWordWrap(True); note.setObjectName("muted"); bottom.addWidget(note, 1)
+        cancel = QPushButton("Отмена"); cancel.clicked.connect(self.reject); bottom.addWidget(cancel)
+        accept = QPushButton("Вывести на сцену"); accept.setObjectName("primary"); accept.clicked.connect(self._accept); bottom.addWidget(accept)
+        root.addLayout(bottom)
+        self._rebuild()
+
+    def _rank_label(self, rank: str) -> str:
+        return {"mob": "моб", "elite": "элита", "boss": "босс"}[rank]
+
+    def _rebuild(self) -> None:
+        self.listing.clear()
+        rank = self.filter.currentData()
+        needle = self.search.text().strip().lower()
+        for entry in bestiary.entries():
+            if rank and entry.rank != rank:
+                continue
+            if needle and needle not in entry.name.lower() and needle not in entry.blurb.lower():
+                continue
+            self.listing.addItem(f"{entry.name}\n{self._rank_label(entry.rank)} · CR {entry.cr}")
+            self.listing.item(self.listing.count() - 1).setData(Qt.ItemDataRole.UserRole, entry.id)
+        if self.listing.count():
+            self.listing.setCurrentRow(0)
+        else:
+            self.preview.setHtml("<h3>Ничего не найдено</h3><p>Смягчите фильтр или запрос.</p>")
+
+    def _preview(self, row: int) -> None:
+        item = self.listing.item(row)
+        if not item:
+            return
+        entry_id = item.data(Qt.ItemDataRole.UserRole)
+        self.preview.setHtml(bestiary.preview_html(entry_id))
+
+    def _accept(self) -> None:
+        item = self.listing.currentItem()
+        if not item:
+            return
+        self.chosen_id = item.data(Qt.ItemDataRole.UserRole)
+        self.accept()
+
+
 class BattleStage(QFrame):
     """Procedural gothic battle stage; no bundled or external artwork is required."""
     def __init__(self, parent: QWidget | None = None):
@@ -367,6 +513,26 @@ class BattleStage(QFrame):
         super().paintEvent(event)
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(1, 1, -1, -1)
+        backdrop = assets.backdrop_path()
+        backdrop_drawn = False
+        if backdrop is not None:
+            scaled = load_pixmap(str(backdrop), max(1, rect.width()), max(1, rect.height()), expand=True)
+            if scaled and not scaled.isNull():
+                source = scaled if scaled.width() <= rect.width() and scaled.height() <= rect.height() else scaled.copy(
+                    max(0, (scaled.width() - rect.width()) // 2), max(0, (scaled.height() - rect.height()) // 2),
+                    min(scaled.width(), rect.width()), min(scaled.height(), rect.height()))
+                painter.drawPixmap(rect, source, source.rect())
+                backdrop_drawn = True
+        if backdrop_drawn:
+            # Театральная вуаль: сцена затемняется, чтобы карточки и ряды оставались читаемыми.
+            veil = QLinearGradient(0, rect.top(), 0, rect.bottom())
+            veil.setColorAt(0, QColor(9, 7, 8, 165)); veil.setColorAt(.55, QColor(12, 9, 10, 120)); veil.setColorAt(1, QColor(9, 7, 8, 205))
+            painter.fillRect(rect, veil)
+            seam = QRadialGradient(rect.center().x(), int(rect.height() * .54), rect.width() * .30)
+            seam.setColorAt(0, QColor(156, 48, 38, 40)); seam.setColorAt(1, QColor(0, 0, 0, 0)); painter.fillRect(rect, seam)
+            painter.setPen(QPen(QColor(177, 73, 57, 110), 2)); painter.drawLine(rect.center().x(), rect.top() + 60, rect.center().x(), rect.bottom() - 8)
+            painter.setPen(QPen(QColor("#513a36"), 1)); painter.drawRect(rect); painter.end()
+            return
         sky = QLinearGradient(0, rect.top(), 0, rect.bottom())
         sky.setColorAt(0, QColor("#080708")); sky.setColorAt(.42, QColor("#1a1012")); sky.setColorAt(.72, QColor("#231517")); sky.setColorAt(1, QColor("#080708")); painter.fillRect(rect, sky)
         # A dim blood-red light sits behind the opposing front lines.
@@ -439,7 +605,15 @@ class ActorCard(QFrame):
         self.setObjectName("actor"); self.setMinimumWidth(118); self.setMaximumWidth(205)
         active = window.engine.active_actor(); self.setProperty("active", bool(active and active.id == actor.id)); self.setProperty("target", window.campaign.battle.target_id == actor.id)
         root = QVBoxLayout(self); root.setContentsMargins(5, 5, 5, 6); root.setSpacing(4)
-        marker = QLabel(("◆ БОСС" if actor.is_boss else ("ГЕРОЙ" if actor.side == "hero" else "ПРОТИВНИК")))
+        if actor.is_boss or actor.rank == "boss":
+            rank_label = "◆ БОСС"
+        elif actor.side == "hero":
+            rank_label = "ГЕРОЙ"
+        elif actor.rank == "elite":
+            rank_label = "✦ ЭЛИТА"
+        else:
+            rank_label = "ПРОТИВНИК"
+        marker = QLabel(rank_label)
         marker.setAlignment(Qt.AlignmentFlag.AlignCenter); marker.setStyleSheet("color:#b87562;font-size:8px;font-weight:700;letter-spacing:2px")
         root.addWidget(marker)
         portrait = Portrait(actor); portrait.clicked.connect(lambda: window.select_actor(actor.id)); root.addWidget(portrait, 1)
@@ -453,6 +627,9 @@ class ActorCard(QFrame):
         root.addWidget(meter)
         if actor.telegraph:
             warning = QLabel(f"⚠ {actor.telegraph} · Сл {actor.telegraph_dc}"); warning.setWordWrap(True); warning.setAlignment(Qt.AlignmentFlag.AlignCenter); warning.setStyleSheet("color:#d5a365;font-size:9px;font-weight:700"); root.addWidget(warning)
+        if actor.hp == 0 and "Мёртв" not in actor.conditions and "Стабилизирован" not in actor.conditions:
+            successes, failures = window.engine.death_status(actor.id)
+            dying = QLabel(f"☠ ПРИ СМЕРТИ  ✓{successes}  ✗{failures}"); dying.setAlignment(Qt.AlignmentFlag.AlignCenter); dying.setStyleSheet("color:#c94f41;font-size:9px;font-weight:700;letter-spacing:1px"); root.addWidget(dying)
         if actor.conditions:
             condition = QLabel(" · ".join(actor.conditions[:2])); condition.setAlignment(Qt.AlignmentFlag.AlignCenter); condition.setWordWrap(True); condition.setStyleSheet("color:#b86a5e;font-size:9px"); root.addWidget(condition)
         controls = QHBoxLayout(); controls.setSpacing(2)
@@ -553,6 +730,7 @@ class CharactersPage(QWidget):
         header = QHBoxLayout(); title = QLabel("Персонажи" if window.is_gm() else "Мой персонаж"); title.setObjectName("title"); header.addWidget(title, 1)
         if window.is_gm():
             creature = QPushButton("＋ Импорт моба / босса"); creature.setObjectName("primary"); creature.clicked.connect(lambda: window.import_character("enemy")); header.addWidget(creature)
+            bestiary_button = QPushButton("📕 Бестиарий"); bestiary_button.clicked.connect(window.import_from_bestiary); header.addWidget(bestiary_button)
             add = QPushButton("Импорт героя"); add.clicked.connect(lambda: window.import_character("hero")); header.addWidget(add)
             create = QPushButton("Новый вручную"); create.clicked.connect(window.create_character); header.addWidget(create)
         root.addLayout(header)
@@ -785,6 +963,13 @@ class MainWindow(QMainWindow):
         sidebar = QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(220); side = QVBoxLayout(sidebar); side.setContentsMargins(10, 0, 10, 12); side.setSpacing(4)
         brand = QLabel("GRIMDICE"); brand.setObjectName("brand"); side.addWidget(brand)
         subtitle = QLabel("DRAGON SAGA"); subtitle.setObjectName("brandAccent"); side.addWidget(subtitle)
+        banner = assets.banner_path()
+        if banner is not None:
+            banner_label = QLabel(); banner_label.setToolTip("Сага 5.0 «Гримуар» — оригинальная гербовая заглушка")
+            banner_pixmap = load_pixmap(str(banner), 190, 190)
+            if banner_pixmap and not banner_pixmap.isNull():
+                banner_label.setPixmap(banner_pixmap); banner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                side.addWidget(banner_label)
         section = QLabel("БОЕВОЙ СТОЛ"); section.setObjectName("eyebrow"); section.setStyleSheet("padding:18px 10px 5px"); side.addWidget(section)
         self.battle_nav = QPushButton("⚔   Боевая сцена"); self.battle_nav.setObjectName("nav"); self.battle_nav.setCheckable(True); self.battle_nav.clicked.connect(lambda: self.set_page(0)); side.addWidget(self.battle_nav)
         self.characters_nav = QPushButton("♙   Листы участников"); self.characters_nav.setObjectName("nav"); self.characters_nav.setCheckable(True); self.characters_nav.clicked.connect(lambda: self.set_page(1)); side.addWidget(self.characters_nav)
@@ -793,8 +978,10 @@ class MainWindow(QMainWindow):
         self.lss_nav = QPushButton("📥   Импорт из LSS"); self.lss_nav.setObjectName("nav"); self.lss_nav.setCheckable(True); self.lss_nav.clicked.connect(lambda: self.set_page(4)); side.addWidget(self.lss_nav)
         self.lss_charm_nav = QPushButton("📖   Чарники LSS"); self.lss_charm_nav.setObjectName("nav"); self.lss_charm_nav.setCheckable(True); self.lss_charm_nav.clicked.connect(lambda: self.set_page(5)); side.addWidget(self.lss_charm_nav)
         self.calculators_nav = QPushButton("🧮   Калькуляторы"); self.calculators_nav.setObjectName("nav"); self.calculators_nav.setCheckable(True); self.calculators_nav.clicked.connect(lambda: self.set_page(6)); side.addWidget(self.calculators_nav)
+        self.journal_nav = QPushButton("📜   Хроника боя"); self.journal_nav.setObjectName("nav"); self.journal_nav.setCheckable(True); self.journal_nav.clicked.connect(lambda: self.set_page(7)); side.addWidget(self.journal_nav)
         if self.is_gm():
             import_creature = QPushButton("＋   ИМПОРТ МОБА / БОССА"); import_creature.setObjectName("primary"); import_creature.clicked.connect(lambda: self.import_character("enemy")); side.addWidget(import_creature)
+            bestiary_button = QPushButton("📕   БЕСТИАРИЙ"); bestiary_button.clicked.connect(self.import_from_bestiary); side.addWidget(bestiary_button)
         side.addStretch()
         line = QFrame(); line.setFixedHeight(1); line.setStyleSheet("background:#342b2b"); side.addWidget(line)
         self.materials_button = QPushButton("Материалы и модели"); self.materials_button.setEnabled(self.is_gm()); self.materials_button.clicked.connect(lambda: MaterialsDialog(self).exec()); side.addWidget(self.materials_button)
@@ -825,8 +1012,10 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(BattlePage(self)); self.stack.addWidget(CharactersPage(self))
         self.stack.addWidget(StrategicStage(self)); self.stack.addWidget(DDBattleStage(self))
         self.stack.addWidget(LSSImportPage(self)); self.stack.addWidget(self._lss_charm_page(self))
-        self.stack.addWidget(self._calculators_page(self)); self.stack.setCurrentIndex(self.current_page)
-        self.battle_nav.setChecked(self.current_page == 0); self.characters_nav.setChecked(self.current_page == 1)
+        self.stack.addWidget(self._calculators_page(self))
+        self.stack.addWidget(self._journal_page(self))
+        self.stack.setCurrentIndex(self.current_page)
+        self._sync_nav_checks()
         self.characters_nav.setText("♙   Персонажи" if self.is_gm() else "♙   Мой персонаж")
         self.role_label.setText(("МАСТЕР" if self.is_gm() else "ИГРОК") + (f"\nКомната {self.network.room_code}" if self.network else "\nЛокальный режим"))
         self.edition.blockSignals(True); self.edition.setCurrentText(self.campaign.edition); self.edition.blockSignals(False)
@@ -844,6 +1033,7 @@ class MainWindow(QMainWindow):
         self.lss_nav.setChecked(self.current_page == 4)
         self.lss_charm_nav.setChecked(self.current_page == 5)
         self.calculators_nav.setChecked(self.current_page == 6)
+        self.journal_nav.setChecked(self.current_page == 7)
 
     def is_gm(self) -> bool:
         return self.campaign.role == "gm"
@@ -892,7 +1082,12 @@ class MainWindow(QMainWindow):
     def change_hp(self, actor_id: str, delta: int) -> None:
         actor = self.campaign.character(actor_id)
         if actor and self.can_control(actor):
-            actor.hp = max(0, min(actor.max_hp, actor.hp + delta)); self.commit(f"{actor.name}: ОЗ {actor.hp}/{actor.max_hp}")
+            before = actor.hp
+            actor.hp = max(0, min(actor.max_hp, actor.hp + delta))
+            if before == 0 and actor.hp > 0:
+                actor.conditions = [c for c in actor.conditions if c not in {"Без сознания", "Стабилизирован"}]
+                self.engine.stabilize_reset(actor.id)
+            self.commit(f"{actor.name}: ОЗ {actor.hp}/{actor.max_hp}")
 
     def quick_roll(self, formula: str) -> None:
         try:
@@ -960,6 +1155,10 @@ class MainWindow(QMainWindow):
         charge = menu.addAction("Натиск"); flank = menu.addAction("Фланг"); breather = menu.addAction("Тактическая передышка")
         target = self.campaign.character(self.campaign.battle.target_id)
         analyze = menu.addAction("Анализ подготовки босса") if target and target.side != actor.side and target.is_boss and target.telegraph else None
+        dying = None
+        if actor.hp == 0 and "Мёртв" not in actor.conditions and "Стабилизирован" not in actor.conditions:
+            successes, failures = self.engine.death_status(actor.id)
+            dying = menu.addAction(f"🩸 Спасбросок от смерти · ✓{successes} ✗{failures} · d20")
         menu.addSeparator(); conditions = menu.addAction("Изменить состояния"); edit = menu.addAction("Редактировать лист"); edit.setEnabled(self.can_edit_sheet(actor))
         if actor.is_boss: telegraph = menu.addAction("Подготовка босса")
         else: telegraph = None
@@ -989,9 +1188,13 @@ class MainWindow(QMainWindow):
             elif analyze and picked == analyze and target:
                 if self.network_tactic(actor.id, "investigate", target_id=target.id, ability="wis"): return
                 result = self.engine.investigate_telegraph(actor.id, target.id, "wis"); self.commit(result.detail)
+            elif dying and picked == dying:
+                if self.network_tactic(actor.id, "death_save"): return
+                result = self.engine.death_save(actor.id); self.commit(result.detail)
             elif picked == conditions:
-                text, ok = self._text_prompt("Состояния", "Через запятую", ", ".join(actor.conditions))
-                if ok: actor.conditions = [x.strip() for x in text.split(",") if x.strip()]; self.commit("Состояния обновлены")
+                dialog = ConditionsDialog(actor, self)
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    actor.conditions = dialog.selected(); self.commit("Состояния обновлены")
             elif picked == edit: self.edit_character(actor.id)
             elif telegraph and picked == telegraph:
                 text, ok = self._text_prompt("Подготовка босса", "Действие | Сл | контрмера", f"{actor.telegraph or 'Сокрушающий удар'} | {actor.telegraph_dc} | {actor.telegraph_counter or 'Отойти в тыл'}")
@@ -1021,7 +1224,8 @@ class MainWindow(QMainWindow):
         try:
             parsed = dialog._last_result or parse_stat_block(dialog.text.toPlainText(), dialog.side.currentData()); actor = parsed.combatant
             actor.side = dialog.side.currentData(); actor.is_boss = actor.is_boss or dialog.boss_selected
-            actor.audit.append(f"Роль выбрана перед импортом: {dialog.side.currentText()}.")
+            actor.rank = ("hero", "mob", "elite", "boss")[min(3, dialog.side.currentIndex())]
+            actor.audit.append(f"Роль выбрана перед импортом: {dialog.side.currentText()} (ранг {actor.rank}).")
             self.campaign.characters.append(actor)
             preferred = ("T1", "A1") if actor.side == "hero" else ("A2", "T2")
             zone = next((z for z in preferred if len(self.campaign.positioned(z)) < 2), "reserve")
@@ -1030,10 +1234,31 @@ class MainWindow(QMainWindow):
         except ValueError as exc: self.error(str(exc))
 
     def create_character(self) -> None:
-        actor = Combatant(name="Новый герой")
+        actor = Combatant(name="Новый герой", rank="hero")
         dialog = CharacterDialog(actor, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             actor = dialog.apply(); self.campaign.characters.append(actor); self.campaign.battle.positions[actor.id] = "reserve"; self.selected_character_id = actor.id; self.commit("Персонаж создан")
+
+    def import_from_bestiary(self) -> None:
+        """Вывести на сцену существо из встроенного бестиария (с нумерацией групп)."""
+        if not self.is_gm(): return
+        dialog = BestiaryDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.chosen_id: return
+        try:
+            meta = bestiary.entry(dialog.chosen_id)
+            added: list[str] = []
+            for index in range(1, dialog.count.value() + 1):
+                actor = bestiary.create(dialog.chosen_id, number=index)
+                self.campaign.characters.append(actor)
+                preferred = ("A2", "T2")
+                zone = next((z for z in preferred if len(self.campaign.positioned(z)) < 2), "reserve")
+                self.campaign.battle.positions[actor.id] = zone
+                added.append(f"{actor.name} → {zone if zone != 'reserve' else 'резерв'}")
+            last = self.campaign.characters[-1]
+            self.selected_character_id = last.id
+            self.commit(f"Бестиарий: {', '.join(added)}")
+        except (KeyError, ValueError) as exc:
+            self.error(str(exc))
 
     def edit_character(self, actor_id: str) -> None:
         actor = self.campaign.character(actor_id)
@@ -1280,6 +1505,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(SaveDCcalculator(), "Спасброски и DC")
         tabs.addTab(ACComparison(), "Сравнение КД")
         tabs.addTab(InitiativeTracker(), "Инициатива")
+        tabs.addTab(EncounterCalculator(self), "Встреча и XP")
         
         # Подсказки для каждой вкладки
         tips = QFrame(); tips.setObjectName("panel")
@@ -1290,13 +1516,74 @@ class MainWindow(QMainWindow):
             "Урон и попадания: формула броска, бонус атаки, КД цели, режим крита\n"
             "Спасброски: DC, характеристика, модификатор, урон/лечение, половина урона\n"
             "Сравнение КД: КД защищающегося/нападающего, преимущества, бонусы/пенальти\n"
-            "Инициатива: список участников, бонусы, броски, очередь ходов"
+            "Инициатива: список участников, бонусы, броски, очередь ходов\n"
+            "Встреча и XP: уровни партии, CR противников, множитель численности, пороги сложности"
         )
         tip_data.setWordWrap(True); tip_data.setObjectName("muted"); tips_layout.addWidget(tip_data)
         root.addWidget(tips, 1)
         
         root.addWidget(tabs, 1)
         return container
+
+    def _journal_page(self, window: "MainWindow") -> QWidget:
+        """Хроника боя: полный журнал с фильтром и экспортом в Markdown."""
+        container = QWidget(); container.setObjectName("root")
+        root = QVBoxLayout(container); root.setContentsMargins(0, 0, 0, 0)
+        header = QHBoxLayout()
+        block = QVBoxLayout(); eyebrow = QLabel("ЛЕТОПИСЬ СТОЛА"); eyebrow.setObjectName("eyebrow"); block.addWidget(eyebrow)
+        title = QLabel("Хроника боя"); title.setObjectName("title"); block.addWidget(title); header.addLayout(block, 1)
+        export = QPushButton("Экспорт в Markdown"); export.clicked.connect(self.export_journal); header.addWidget(export)
+        clear = QPushButton("Очистить"); clear.setObjectName("danger"); clear.setEnabled(self.is_gm()); clear.clicked.connect(self.clear_journal); header.addWidget(clear)
+        root.addLayout(header)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Фильтр:"))
+        journal_filter = QLineEdit(); journal_filter.setPlaceholderText("инициатива, имя, урон, спасбросок…")
+        journal_filter.setObjectName("journalFilter"); filter_row.addWidget(journal_filter, 1)
+        root.addLayout(filter_row)
+        panel = QFrame(); panel.setObjectName("panel"); panel_layout = QVBoxLayout(panel)
+        entries = list(reversed(self.campaign.battle.log))
+        needle = ""
+        if entries:
+            shown = 0
+            for number, line in enumerate(entries, start=1):
+                if needle and needle not in line.lower():
+                    continue
+                row = QLabel(f"<span style='color:#6f625c'>#{len(entries) - number + 1:03d}</span>  {line}")
+                row.setWordWrap(True); row.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                row.setStyleSheet("padding:7px 10px;border-bottom:1px solid #2a2324;font-size:12px")
+                panel_layout.addWidget(row); shown += 1
+            if not shown:
+                panel_layout.addWidget(QLabel("По фильтру ничего не найдено."))
+        else:
+            empty = QLabel("Журнал пуст: инициатива, удары, передышки и спасброски появятся здесь автоматически.")
+            empty.setObjectName("muted"); empty.setWordWrap(True); panel_layout.addWidget(empty)
+        panel_layout.addStretch()
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(panel)
+        root.addWidget(scroll, 1)
+        stats = QLabel(f"Записей: {len(entries)} · хранится до 200 последних · раунд {self.campaign.battle.round_number or '—'}")
+        stats.setObjectName("muted"); root.addWidget(stats)
+        return container
+
+    def export_journal(self) -> None:
+        if not self.campaign.battle.log:
+            return self.error("Хроника пока пуста")
+        filename, _ = QFileDialog.getSaveFileName(self, "Экспорт хроники", "dragon-saga-journal.md", "Markdown (*.md *.txt)")
+        if not filename:
+            return
+        try:
+            lines = ["# Хроника «Драконьей Саги»", "", f"Кампания: {self.campaign.title} · редакция {self.campaign.edition}", ""]
+            lines.extend(f"{index}. {entry}" for index, entry in enumerate(self.campaign.battle.log, start=1))
+            Path(filename).write_text("\n".join(lines) + "\n", encoding="utf-8")
+            self.last_banner = f"Хроника экспортирована: {filename}"; self.refresh()
+        except OSError as exc:
+            self.error(str(exc))
+
+    def clear_journal(self) -> None:
+        if not self.is_gm():
+            return
+        if QMessageBox.question(self, "Очистить хронику", "Удалить все записи журнала боя?") == QMessageBox.StandardButton.Yes:
+            self.campaign.battle.log = []
+            self.commit("Хроника очищена")
 
     def closeEvent(self, event):  # type: ignore[override]
         if not self.network or self.is_gm(): save_campaign(self.campaign)
