@@ -150,7 +150,7 @@ class BattleState:
 @dataclass
 class Campaign:
     schema: str = "dragon-saga-python"
-    version: str = "5.0.0"
+    version: str = "5.1.0"
     title: str = "Драконья Сага"
     edition: str = "2024"
     role: str = "gm"

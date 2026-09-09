@@ -1,5 +1,5 @@
 #define MyAppName "Драконья Сага"
-#define MyAppVersion "5.0.0"
+#define MyAppVersion "5.1.0"
 #ifndef MySourceDir
   #define MySourceDir "..\\dist\\DragonSaga"
 #endif
@@ -10,7 +10,7 @@ AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\Dragon Saga
 DefaultGroupName={#MyAppName}
 OutputDir=..\release
-OutputBaseFilename=Dragon-Saga-5.0.0-Windows-x64-Setup
+OutputBaseFilename=Dragon-Saga-5.1.0-Windows-x64-Setup
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible

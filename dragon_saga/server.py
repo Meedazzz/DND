@@ -130,7 +130,7 @@ def apply_player_state(room: Room, session: Session, incoming: dict[str, Any]) -
 
 
 class DragonSagaHandler(BaseHTTPRequestHandler):
-    server_version = "DragonSagaPython/5.0"
+    server_version = "DragonSagaPython/5.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
         if getattr(self.server, "quiet", False):
@@ -175,7 +175,7 @@ class DragonSagaHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parts = self._parts()
         if parts == ["api", "health"]:
-            return self._json(200, {"ok": True, "service": "Драконья Сага", "version": "5.0.0"})
+            return self._json(200, {"ok": True, "service": "Драконья Сага", "version": "5.1.0"})
         if len(parts) == 4 and parts[:2] == ["api", "rooms"] and parts[3] == "state":
             room = _room(parts[2])
             session = self._session(room)

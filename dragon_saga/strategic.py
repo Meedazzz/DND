@@ -1,21 +1,22 @@
 """
 Стратегический режим — армия на армию, юниты на юниты, вид сверху.
 
-Заглушка с редактируемыми настройками и понятными интерфейсами.
-Позже здесь будет:
-- Сетка клеток (квадратная) и гексагональная сетка, переключаемая в настройках.
-- Токены юнитов, перемещаемые по клеткам/гексам.
-- Дистанция в клетках (1 клетка = 5 футов по умолчанию).
-- Движение, окружение, фланг, атаки между юнитами/армиями.
-- Очередь юнитов, инициатива, бой по клеткам.
+С версии 5.1.0 — полноценный бой на глобальной карте:
+- квадратная и гексагональная сетка, переключаемая в настройках;
+- токены юнитов, перемещаемые по клеткам/гексам с учётом скорости;
+- дистанция в клетках (1 клетка = 5 футов по умолчанию);
+- атаки d20 против КД с критами, дистанцией и флангом;
+- инициатива d20 + ЛОВ, очередь ходов, определение победителя.
 
-Сейчас — заглушка с настройками, двумя лагерями и минимальной отрисовкой поля.
+Математика боя живёт в :mod:`dragon_saga.strategic_rules` (без Qt,
+покрыта тестами); здесь — поле, лагеря и журнал.
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from PySide6.QtCore import Qt, Signal
@@ -62,9 +63,10 @@ class UnitToken:
     attack_bonus: int = 0
     damage: str = "1d6"
     damage_type: str = ""
-    speed_ft: int = 30  # скорость в футах (позже переводится в клетки)
+    speed_ft: int = 30  # скорость в футах (переводится в клетки через cell_ft)
     range_ft: int = 5  # дистанция атаки в футах
-    actions_per_turn: int = 1  # сколько действий у юнита за ход (заглушка)
+    dex_mod: int = 0  # модификатор ЛОВ для инициативы
+    actions_per_turn: int = 1  # сколько действий у юнита за ход
     icon_path: str = ""  # путь к иконке (пока пусто — позже загрузить из LSS или загрузить файл)
     conditions: list[str] = field(default_factory=list)
     selected: bool = False
@@ -82,6 +84,7 @@ class UnitToken:
             "damage_type": self.damage_type,
             "speed_ft": self.speed_ft,
             "range_ft": self.range_ft,
+            "dex_mod": self.dex_mod,
             "actions_per_turn": self.actions_per_turn,
             "icon_path": self.icon_path,
             "conditions": self.conditions,
@@ -125,72 +128,184 @@ class GridField(QFrame):
         self.setMinimumSize(cols * cell_size, rows * cell_size)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.grid_type: str = GRID_SQUARE
+        self._selected: tuple[int, int] | None = None
+        self._units: dict[str, UnitToken] = {}
+        self._hex_size: float = 20.0
+        self._hex_origin: tuple[float, float] = (0.0, 0.0)
 
     def paintEvent(self, event):  # type: ignore[override]
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(2, 2, -2, -2)
-        padding = 12
-        w = rect.width() - padding * 2
-        h = rect.height() - padding * 2
-        top = padding
-        left = padding
-        cell_w = w / self.cols
-        cell_h = h / self.rows
-
-        # Фон поля
         painter.fillRect(rect, QColor("#0c0a0b"))
+        if self.grid_type == GRID_HEX:
+            self._paint_hex(painter, rect)
+        else:
+            self._paint_square(painter, rect)
+        painter.end()
 
-        # Клетки
+    # -- квадратная сетка -------------------------------------------
+
+    def _square_geometry(self, rect):  # type: ignore[no-untyped-def]
+        padding = 12
+        left = rect.left() + padding
+        top = rect.top() + padding
+        cell_w = (rect.width() - padding * 2) / max(1, self.cols)
+        cell_h = (rect.height() - padding * 2) / max(1, self.rows)
+        return left, top, cell_w, cell_h
+
+    def _paint_square(self, painter, rect):  # type: ignore[no-untyped-def]
+        left, top, cell_w, cell_h = self._square_geometry(rect)
         for r in range(self.rows):
             for c in range(self.cols):
                 cell = self.cells[r][c]
-                x = left + c * cell_w
-                y = top + r * cell_h
+                x = int(left + c * cell_w)
+                y = int(top + r * cell_h)
+                w, h = int(cell_w), int(cell_h)
                 if cell.unit_id:
-                    painter.fillRect(int(x) + 1, int(y) + 1, int(cell_w) - 2, int(cell_h) - 2, QColor("#3a2a26"))
+                    painter.fillRect(x + 1, y + 1, w - 2, h - 2, QColor("#3a2a26"))
                     painter.setPen(QPen(QColor("#c9a77a"), 1))
-                    painter.drawRect(int(x) + 1, int(y) + 1, int(cell_w) - 2, int(cell_h) - 2)
+                    painter.drawRect(x + 1, y + 1, w - 2, h - 2)
+                elif not cell.passable:
+                    painter.setPen(QPen(QColor("#4a2626"), 1))
+                    painter.setBrush(QColor("#241414"))
+                    painter.drawRect(x, y, w - 1, h - 1)
                 else:
                     painter.setPen(QPen(QColor("#2a2523"), 1))
                     painter.setBrush(QColor("#1a1614"))
-                    painter.drawRect(int(x) + 0, int(y) + 0, int(cell_w) - 1, int(cell_h) - 1)
-
-        # Выделенная клетка
-        if hasattr(self, "_selected") and self._selected:
+                    painter.drawRect(x, y, w - 1, h - 1)
+        if self._selected is not None:
             r, c = self._selected
-            x = left + c * cell_w
-            y = top + r * cell_h
+            x = int(left + c * cell_w)
+            y = int(top + r * cell_h)
             painter.setPen(QPen(QColor("#d98c4e"), 2))
-            painter.drawRect(int(x) + 1, int(y) + 1, int(cell_w) - 2, int(cell_h) - 2)
-
-        # Юниты (на клетках)
+            painter.drawRect(x + 1, y + 1, int(cell_w) - 2, int(cell_h) - 2)
         for r in range(self.rows):
             for c in range(self.cols):
-                cell = self.cells[r][c]
-                if cell.unit_id:
-                    x = left + c * cell_w + cell_w / 2
-                    y = top + r * cell_h + cell_h / 2
-                    painter.setPen(QColor("#d98c4e"))
-                    painter.drawEllipse(int(x - 10), int(y - 10), 20, 20)
+                if self.cells[r][c].unit_id:
+                    cx = left + c * cell_w + cell_w / 2
+                    cy = top + r * cell_h + cell_h / 2
+                    self._paint_token(painter, cx, cy, self.cells[r][c].unit_id, min(cell_w, cell_h))
 
-        painter.end()
+    # -- гексагональная сетка (pointy-top, odd-r) --------------------
+
+    def _hex_geometry(self, rect):  # type: ignore[no-untyped-def]
+        import math
+
+        margin = 12
+        w = max(50, rect.width() - margin * 2)
+        h = max(50, rect.height() - margin * 2)
+        size = min(w / (math.sqrt(3) * (self.cols + 0.5)), h / (1.5 * self.rows + 0.5))
+        size = max(8.0, size)
+        total_w = math.sqrt(3) * size * (self.cols + 0.5)
+        total_h = size * (1.5 * self.rows + 0.5)
+        ox = rect.left() + (rect.width() - total_w) / 2
+        oy = rect.top() + (rect.height() - total_h) / 2
+        return size, ox, oy
+
+    def _hex_center(self, row: int, col: int, size: float, ox: float, oy: float) -> tuple[float, float]:
+        import math
+
+        x = ox + math.sqrt(3) * size * (col + 0.5 + 0.5 * (row & 1))
+        y = oy + size * (1.5 * row + 1)
+        return x, y
+
+    def _paint_hex(self, painter, rect):  # type: ignore[no-untyped-def]
+        import math
+
+        from PySide6.QtGui import QPolygonF
+        from PySide6.QtCore import QPointF
+
+        size, ox, oy = self._hex_geometry(rect)
+        self._hex_size = size
+        self._hex_origin = (ox, oy)
+        for r in range(self.rows):
+            for c in range(self.cols):
+                cx, cy = self._hex_center(r, c, size, ox, oy)
+                points = []
+                for i in range(6):
+                    angle = math.radians(60 * i - 30)
+                    points.append(QPointF(cx + size * 0.95 * math.cos(angle), cy + size * 0.95 * math.sin(angle)))
+                poly = QPolygonF(points)
+                cell = self.cells[r][c]
+                if self._selected == (r, c):
+                    painter.setPen(QPen(QColor("#d98c4e"), 2))
+                    painter.setBrush(QColor("#3a2a20"))
+                elif cell.unit_id:
+                    painter.setPen(QPen(QColor("#c9a77a"), 1))
+                    painter.setBrush(QColor("#3a2a26"))
+                elif not cell.passable:
+                    painter.setPen(QPen(QColor("#4a2626"), 1))
+                    painter.setBrush(QColor("#241414"))
+                else:
+                    painter.setPen(QPen(QColor("#2a2523"), 1))
+                    painter.setBrush(QColor("#1a1614"))
+                painter.drawPolygon(poly)
+                if cell.unit_id:
+                    self._paint_token(painter, cx, cy, cell.unit_id, size * 1.2)
+
+    # -- токены ------------------------------------------------------
+
+    def _paint_token(self, painter, cx: float, cy: float, unit_id: str, span: float) -> None:  # type: ignore[no-untyped-def]
+        unit = self._units.get(unit_id)
+        side = unit.side if unit else "hero"
+        radius = max(6.0, min(16.0, span / 3.2))
+        color = QColor("#7ab87a") if side == "hero" else QColor("#c65a4a")
+        if unit is not None and unit.hp <= 0:
+            color = QColor("#5a5a5a")
+        painter.setPen(QPen(color, 2))
+        painter.setBrush(QColor("#141010"))
+        painter.drawEllipse(int(cx - radius), int(cy - radius), int(radius * 2), int(radius * 2))
+        if unit is not None:
+            painter.setPen(color)
+            font = QFont("Georgia", max(7, int(radius * 0.9)))
+            font.setBold(True)
+            painter.setFont(font)
+            initial = (unit.name.strip() or "?")[:1].upper()
+            painter.drawText(int(cx - radius), int(cy - radius), int(radius * 2), int(radius * 2),
+                             Qt.AlignmentFlag.AlignCenter, initial)
+            hp_font = QFont("Segoe UI", 7)
+            painter.setFont(hp_font)
+            painter.setPen(QColor("#d9cec4"))
+            painter.drawText(int(cx - radius - 8), int(cy + radius), int(radius * 2) + 16, 12,
+                             Qt.AlignmentFlag.AlignCenter, f"{unit.hp}/{unit.max_hp}")
 
     def mousePressEvent(self, event):  # type: ignore[override]
+        if self.grid_type == GRID_HEX:
+            self._click_hex(event)
+        else:
+            self._click_square(event)
+
+    def _click_square(self, event) -> None:  # type: ignore[no-untyped-def]
         rect = self.rect().adjusted(2, 2, -2, -2)
-        padding = 12
-        w = rect.width() - padding * 2
-        h = rect.height() - padding * 2
-        top = padding
-        left = padding
-        cell_w = w / self.cols
-        cell_h = h / self.rows
+        left, top, cell_w, cell_h = self._square_geometry(rect)
         c = min(self.cols - 1, max(0, int((event.pos().x() - left) / cell_w)))
         r = min(self.rows - 1, max(0, int((event.pos().y() - top) / cell_h)))
-        if 0 <= r < self.rows and 0 <= c < self.cols:
-            self._selected = (r, c)
-            self.cell_selected.emit(r, c)
+        self._selected = (r, c)
+        self.cell_selected.emit(r, c)
+        self.update()
+
+    def _click_hex(self, event) -> None:  # type: ignore[no-untyped-def]
+        import math
+
+        rect = self.rect().adjusted(2, 2, -2, -2)
+        size, ox, oy = self._hex_geometry(rect)
+        px, py = event.pos().x(), event.pos().y()
+        best: tuple[int, int] | None = None
+        best_dist = size * 1.1
+        for r in range(self.rows):
+            for c in range(self.cols):
+                cx, cy = self._hex_center(r, c, size, ox, oy)
+                dist = math.hypot(px - cx, py - cy)
+                if dist < best_dist:
+                    best_dist = dist
+                    best = (r, c)
+        if best is not None:
+            self._selected = best
+            self.cell_selected.emit(*best)
             self.update()
+
 
     def set_unit_on_cell(self, unit_id: str, row: int, col: int) -> None:
         """Переместить юнит на клетку. Убрать с предыдущей клетки."""
@@ -202,6 +317,22 @@ class GridField(QFrame):
             self.cells[row][col].unit_id = unit_id
             self.update()
 
+    def set_grid_type(self, grid_type: str) -> None:
+        """Переключить отрисовку: 'square' или 'hex'."""
+        self.grid_type = GRID_HEX if grid_type == GRID_HEX else GRID_SQUARE
+        self.update()
+
+    def set_units(self, units: dict[str, "UnitToken"]) -> None:
+        """Передать токены для отрисовки имён, сторон и ОЗ."""
+        self._units = dict(units)
+        self.update()
+
+    def unit_at(self, row: int, col: int) -> str | None:
+        """Id юнита на клетке или None."""
+        if 0 <= row < self.rows and 0 <= col < self.cols:
+            return self.cells[row][col].unit_id
+        return None
+
     def occupied_cells(self) -> dict[str, tuple[int, int]]:
         """Вернуть карту id юнита → (row, col)."""
         result: dict[str, tuple[int, int]] = {}
@@ -212,8 +343,7 @@ class GridField(QFrame):
         return result
 
     def reset_selection(self) -> None:
-        if hasattr(self, "_selected"):
-            del self._selected
+        self._selected = None
         self.update()
 
 
@@ -261,25 +391,141 @@ class StrategicBattle:
     active: bool = False
     log: list[str] = field(default_factory=list)
     initiative_order: list[str] = field(default_factory=list)  # id юнитов в порядке инициативы
+    cell_ft: int = 5  # футов в одной клетке
+    grid_type: str = GRID_SQUARE  # 'square' | 'hex'
+    randint: Callable[[int, int], int] | None = None  # инжекция кубов (тесты/симуляции)
+
+    def _dice(self) -> Callable[[int, int], int]:
+        return self.randint or random.randint
 
     def current_army(self) -> Army | None:
         if self.current_turn not in self.armies:
             return None
         return self.armies[self.current_turn]
 
+    def unit_by_id(self, unit_id: str) -> UnitToken | None:
+        for army in self.armies.values():
+            for unit in army.units:
+                if unit.id == unit_id:
+                    return unit
+        return None
+
+    def all_units(self) -> list[UnitToken]:
+        result: list[UnitToken] = []
+        for army in self.armies.values():
+            result.extend(army.units)
+        return result
+
+    def position_of(self, unit_id: str) -> CellPos | None:
+        if self.grid is None:
+            return None
+        pos = self.grid.occupied_cells().get(unit_id)
+        return CellPos(row=pos[0], col=pos[1]) if pos else None
+
+    def current_unit(self) -> UnitToken | None:
+        if not self.initiative_order:
+            return None
+        self.turn_index %= len(self.initiative_order)
+        return self.unit_by_id(self.initiative_order[self.turn_index])
+
+    def roll_initiative(self) -> list[tuple[str, int]]:
+        """Инициатива d20 + ЛОВ по живым юнитам; возвращает [(id, итог)]."""
+        entries = [(u.id, u.dex_mod) for u in self.all_units() if u.hp > 0]
+        ordered = roll_initiative(entries, self._dice())
+        self.initiative_order = [unit_id for unit_id, _ in ordered]
+        self.turn_index = 0
+        first = self.current_unit()
+        if first is not None:
+            self.current_turn = first.side
+        for unit_id, total in ordered:
+            unit = self.unit_by_id(unit_id)
+            if unit is not None:
+                self.log.append(f"Инициатива · {unit.name}: {total} (ЛОВ {unit.dex_mod:+d})")
+        return ordered
+
     def next_turn(self) -> None:
-        if not self.active:
+        if not self.active or not self.initiative_order:
             return
-        self.turn_index += 1
-        if self.turn_index >= len(self.initiative_order):
-            self.turn_index = 0
-        current_id = self.initiative_order[self.turn_index] if self.initiative_order else ""
-        if current_id:
-            for side, army in self.armies.items():
-                if any(u.id == current_id for u in army.units):
-                    self.current_turn = side
-                    break
-        self.log.append(f"Ход: {self.current_turn} (юнит {self.initiative_order[self.turn_index] if self.initiative_order else '—'})")
+        for _ in range(len(self.initiative_order)):
+            self.turn_index = (self.turn_index + 1) % len(self.initiative_order)
+            current = self.current_unit()
+            if current is not None and current.hp > 0:
+                self.current_turn = current.side
+                self.log.append(f"Ход: {current.name} ({'герои' if current.side == 'hero' else 'враги'})")
+                return
+        self.log.append("Ходить некому: все юниты выбыли")
+
+    def move_unit(self, unit_id: str, row: int, col: int) -> tuple[bool, str]:
+        """Переместить юнита с проверкой скорости и занятости клетки."""
+        unit = self.unit_by_id(unit_id)
+        if unit is None:
+            return False, "юнит не найден"
+        if self.grid is None:
+            return False, "поле не готово"
+        if not (0 <= row < self.grid.rows and 0 <= col < self.grid.cols):
+            return False, "клетка за пределами поля"
+        origin = self.position_of(unit_id)
+        if origin is None:
+            return False, "юнит не выставлен на поле"
+        cell = self.grid.cells[row][col]
+        occupied = cell.unit_id is not None and cell.unit_id != unit_id
+        ok, reason = can_move(origin, CellPos(row=row, col=col), unit.speed_ft,
+                              self.grid_type, self.cell_ft, cell.passable, occupied)
+        if not ok:
+            return False, reason
+        self.grid.set_unit_on_cell(unit_id, row, col)
+        self.log.append(f"{unit.name}: ({origin.row}, {origin.col}) → ({row}, {col})")
+        return True, "ход разрешён"
+
+    def attack(self, attacker_id: str, target_id: str) -> StrikeResult:
+        """Удар юнита по юниту: дистанция, фланг, кубы, добивание."""
+        attacker = self.unit_by_id(attacker_id)
+        target = self.unit_by_id(target_id)
+        if attacker is None or target is None:
+            raise ValueError("Атакующий или цель не найдены")
+        if attacker.side == target.side:
+            raise ValueError("Цельтесь во вражеского юнита")
+        if attacker.hp <= 0:
+            raise ValueError(f"{attacker.name} выбыл из боя")
+        if target.hp <= 0:
+            raise ValueError(f"{target.name} уже уничтожен")
+        origin = self.position_of(attacker_id)
+        foe_pos = self.position_of(target_id)
+        if origin is None or foe_pos is None:
+            raise ValueError("Оба юнита должны стоять на поле")
+        reaches, dist_ft = in_range(origin, foe_pos, attacker.range_ft, self.grid_type, self.cell_ft)
+        if not reaches:
+            raise ValueError(f"{target.name} вне дистанции: {dist_ft} фт при досягаемости {attacker.range_ft} фт")
+        allies = [pos for u in self.all_units()
+                  if u.side == attacker.side and u.id != attacker.id and u.hp > 0
+                  and (pos := self.position_of(u.id)) is not None]
+        advantage = 1 if flanking(origin, foe_pos, allies, self.grid_type) else 0
+        if advantage:
+            self.log.append(f"Фланг! {attacker.name} бьёт с преимуществом")
+        result = resolve_strike(attacker.name, attacker.attack_bonus, attacker.damage,
+                                target.name, target.ac, target.hp, self._dice(), advantage)
+        target.hp = result.target_hp_left
+        self.log.append(result.detail)
+        if result.destroyed and self.grid is not None:
+            for r in range(self.grid.rows):
+                for c in range(self.grid.cols):
+                    if self.grid.cells[r][c].unit_id == target.id:
+                        self.grid.cells[r][c].unit_id = None
+            self.grid.update()
+        winner = self.check_winner()
+        if winner is not None:
+            self.active = False
+            if winner == "draw":
+                self.log.append("Битва завершена: взаимное уничтожение!")
+            else:
+                name = "Герои" if winner == "hero" else "Враги"
+                self.log.append(f"Битва завершена: побеждают {name}!")
+        return result
+
+    def check_winner(self) -> str | None:
+        """Победитель ('hero'/'enemy'/'draw') или None — бой продолжается."""
+        totals = {side: sum(u.hp for u in army.units if u.hp > 0) for side, army in self.armies.items()}
+        return battle_outcome(totals)
 
     def end_battle(self) -> None:
         self.active = False
@@ -328,10 +574,15 @@ class UnitEditorDialog(QDialog):
         self.attack_input.setValue(self.unit.attack_bonus)
         self.attack_input.setPrefix("+")
 
+        self.dex_input = QSpinBox()
+        self.dex_input.setRange(-10, 20)
+        self.dex_input.setValue(self.unit.dex_mod)
+        self.dex_input.setPrefix("+")
+
         self.damage_input = QLineEdit(self.unit.damage)
 
         self.damage_type_combo = QComboBox()
-        damage_types = ["", "огневое", "холодное", "ламповое", "кинетическое", "мор/токсик", "психическое", "неконтагиозное"]
+        damage_types = ["", "дробящий", "колющий", "рубящий", "огонь", "холод", "электричество", "кислота", "яд", "звук", "некротический", "излучение", "психический", "силовой"]
         self.damage_type_combo.addItems(damage_types)
         self.damage_type_combo.setCurrentIndex(damage_types.index(self.unit.damage_type) if self.unit.damage_type in damage_types else 0)
 
@@ -355,10 +606,10 @@ class UnitEditorDialog(QDialog):
         self.conditions_input = QLineEdit(", ".join(self.unit.conditions))
 
         self.melee_check = QCheckBox("Ближний бой")
-        self.melee_check.setChecked(self.range_ft <= 5)
+        self.melee_check.setChecked(self.unit.range_ft <= 5)
 
         self.ranged_check = QCheckBox("Дальний бой")
-        self.ranged_check.setChecked(self.range_ft > 5)
+        self.ranged_check.setChecked(self.unit.range_ft > 5)
 
         for label, widget in (
             ("Имя", self.name_input),
@@ -367,6 +618,7 @@ class UnitEditorDialog(QDialog):
             ("Максимум ОЗ", self.max_hp_input),
             ("КД", self.ac_input),
             ("Бонус атаки", self.attack_input),
+            ("Мод. ЛОВ (инициатива)", self.dex_input),
             ("Урон (формула)", self.damage_input),
             ("Тип урона", self.damage_type_combo),
             ("Скорость", self.speed_input),
@@ -401,6 +653,9 @@ class StrategicStage(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.battle = StrategicBattle()
+        self.selected_unit_id: str | None = None
+        self.target_unit_id: str | None = None
+        self._shown_log = 0
         self.init_ui()
         self.init_field()
         self.init_armies()
@@ -410,7 +665,7 @@ class StrategicStage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Заголовок
-        title = QLabel("СТРАТЕГИЧЕСКИЙ РЕЖИМ · Армия на армию (заглушка)")
+        title = QLabel("СТРАТЕГИЧЕСКИЙ РЕЖИМ · Армия на армию")
         title.setObjectName("title")
         layout.addWidget(title)
 
@@ -420,6 +675,7 @@ class StrategicStage(QWidget):
         self.grid_type_combo = QComboBox()
         self.grid_type_combo.addItems(["Квадратная сетка", "Гексагональная сетка"])
         self.grid_type_combo.setCurrentIndex(0)
+        self.grid_type_combo.currentIndexChanged.connect(self._on_grid_type_changed)
         grid_type_layout = QHBoxLayout()
         grid_type_layout.addWidget(grid_type_label)
         grid_type_layout.addWidget(self.grid_type_combo)
@@ -435,6 +691,7 @@ class StrategicStage(QWidget):
         self.cell_size_spin.setRange(1, 20)
         self.cell_size_spin.setValue(5)
         self.cell_size_spin.setSuffix(" футов")
+        self.cell_size_spin.valueChanged.connect(lambda value: setattr(self.battle, "cell_ft", value))
         settings_layout.addWidget(self.cell_size_spin)
         settings_layout.addStretch()
         layout.addLayout(settings_layout)
@@ -443,6 +700,14 @@ class StrategicStage(QWidget):
         self.field = GridField(rows=10, cols=10, cell_size=50)
         self.field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.field)
+        self.turn_label = QLabel("Битва не начата: расставьте юнитов и нажмите «Начать битву».")
+        self.turn_label.setWordWrap(True)
+        self.turn_label.setObjectName("muted")
+        layout.addWidget(self.turn_label)
+        self.selection_label = QLabel("Атакующий: — · Цель: —")
+        self.selection_label.setWordWrap(True)
+        self.selection_label.setObjectName("muted")
+        layout.addWidget(self.selection_label)
 
         # Панель лагерей
         armies_layout = QHBoxLayout()
@@ -467,12 +732,15 @@ class StrategicStage(QWidget):
         self.start_button.clicked.connect(self._start_battle)
         self.step_button = QPushButton("Следующий ход")
         self.step_button.clicked.connect(self._next_turn)
+        self.attack_button = QPushButton("⚔ Атаковать цель")
+        self.attack_button.clicked.connect(self._attack_target)
         self.end_button = QPushButton("Завершить битву")
         self.end_button.clicked.connect(self._end_battle)
         self.reset_button = QPushButton("Сбросить поле")
         self.reset_button.clicked.connect(self._reset_field)
         buttons_layout.addWidget(self.start_button)
         buttons_layout.addWidget(self.step_button)
+        buttons_layout.addWidget(self.attack_button)
         buttons_layout.addWidget(self.end_button)
         buttons_layout.addWidget(self.reset_button)
         layout.addLayout(buttons_layout)
@@ -518,6 +786,7 @@ class StrategicStage(QWidget):
         return widget
 
     def init_field(self) -> None:
+        self.battle.grid = self.field
         self.field.cell_selected.connect(self._on_cell_selected)
         self.field.reset_selection()
 
@@ -530,6 +799,8 @@ class StrategicStage(QWidget):
     def _refresh_army_widgets(self) -> None:
         self._refresh_unit_list(self.hero_army_widget, "hero")
         self._refresh_unit_list(self.enemy_army_widget, "enemy")
+        self.field.set_units({u.id: u for u in self.battle.all_units()})
+        self._update_selection_hint()
 
     def _refresh_unit_list(self, widget: QWidget, side: str) -> None:
         list_widget = widget.findChild(QListWidget)
@@ -538,7 +809,9 @@ class StrategicStage(QWidget):
             army = self.battle.armies.get(side)
             if army:
                 for unit in army.units:
-                    item_text = f"{unit.name} · ОЗ {unit.hp}/{unit.max_hp} · КД {unit.ac} · Уроб {unit.damage} · Скорость {unit.speed_ft}фт"
+                    marker = " ▶" if unit.id == self._current_unit_id() else ""
+                    dead = " ☠" if unit.hp <= 0 else ""
+                    item_text = f"{unit.name}{marker}{dead} · ОЗ {unit.hp}/{unit.max_hp} · КД {unit.ac} · Урон {unit.damage} · ЛОВ {unit.dex_mod:+d}"
                     if unit.conditions:
                         item_text += f" · Состояния: {', '.join(unit.conditions)}"
                     list_widget.addItem(item_text)
@@ -558,10 +831,12 @@ class StrategicStage(QWidget):
                 damage="1d6",
                 speed_ft=30,
                 range_ft=5,
+                dex_mod=1,
             )
             army.units.append(unit)
             self._refresh_army_widgets()
             self.battle.log.append(f"Добавлен юнит {unit.name} в лагерь {'Герои' if side == 'hero' else 'Враги'}")
+            self._sync_log()
 
     def _remove_unit(self, side: str) -> None:
         """Удалить выбранный юнит."""
@@ -571,81 +846,90 @@ class StrategicStage(QWidget):
             army = self.battle.armies.get(side)
             if army and list_widget.currentRow() < len(army.units):
                 removed = army.units.pop(list_widget.currentRow())
+                if self.selected_unit_id == removed.id:
+                    self.selected_unit_id = None
+                if self.target_unit_id == removed.id:
+                    self.target_unit_id = None
                 self._refresh_army_widgets()
                 self.battle.log.append(f"Удалён юнит {removed.name}")
+                self._sync_log()
 
     def _select_unit(self, side: str, row: int) -> None:
-        """Выбрать юнит для перемещения."""
+        """Выбрать юнита: свой в свой ход — атакующий, вражеский — цель."""
         army = self.battle.armies.get(side)
-        if army and 0 <= row < len(army.units):
-            unit = army.units[row]
-            self.field.reset_selection()
-            for r in range(self.field.rows):
-                for c in range(self.field.cols):
-                    if self.field.cells[r][c].unit_id == unit.id:
-                        self.field._selected = (r, c)
-                        self.field.update()
-                        break
+        if not army or not (0 <= row < len(army.units)):
+            return
+        unit = army.units[row]
+        current = self.battle.current_unit() if self.battle.active else None
+        if current is not None and unit.id != current.id and unit.side != current.side and unit.hp > 0:
+            self.target_unit_id = unit.id
+        else:
+            self.selected_unit_id = unit.id
+        pos = self.battle.position_of(unit.id)
+        if pos is not None:
+            self.field._selected = (pos.row, pos.col)
+            self.field.update()
+        self._update_selection_hint()
+        self._refresh_army_widgets()
 
     def _on_cell_selected(self, row: int, col: int) -> None:
-        """Переместить выбранный юнит на выбранную клетку."""
-        if not self.battle.active:
+        """Клик по полю: вражеский токен — цель, пустая клетка — движение."""
+        occupant = self.field.unit_at(row, col)
+        if occupant is not None:
+            unit = self.battle.unit_by_id(occupant)
+            current = self.battle.current_unit() if self.battle.active else None
+            if unit is not None and current is not None and unit.side != current.side and unit.hp > 0:
+                self.target_unit_id = unit.id
+                self._update_selection_hint()
+                return
+            self.selected_unit_id = occupant
+            self._update_selection_hint()
             return
-        # Найти выбранный юнит по текущему лагерю
-        army = self.battle.current_army()
-        if army and army.alive_units():
-            # Попробуем найти юнит, который сейчас "выбран" (по последнему клику)
-            selected_unit = army.alive_units()[0]  # заглушка — позже будет реальный выбор
-            # Проверка: можно ли переместиться (осталось ли движение)
-            current_pos = None
-            for r in range(self.field.rows):
-                for c in range(self.field.cols):
-                    if self.field.cells[r][c].unit_id == selected_unit.id:
-                        current_pos = (r, c)
-                        break
-            if current_pos:
-                dist = abs(row - current_pos[0]) + abs(col - current_pos[1])  # Манхэттен для заглушки
-                max_cells = selected_unit.speed_ft // 5  # 1 клетка = 5 футов
-                if dist <= max_cells:
-                    # Очистить текущую клетку
-                    for r in range(self.field.rows):
-                        for c in range(self.field.cols):
-                            if self.field.cells[r][c].unit_id == selected_unit.id:
-                                self.field.cells[r][c].unit_id = None
-                    # Установить новую
-                    self.field.cells[row][col].unit_id = selected_unit.id
-                    self.field.update()
-                    self.battle.log.append(f"{selected_unit.name} → ({row}, {col})")
-                    self.field._selected = (row, col)
-                    self.field.update()
+        if self.selected_unit_id is None:
+            self.battle.log.append("Выберите юнита в списке лагеря, затем клетку для движения")
+            self._sync_log()
+            return
+        ok, reason = self.battle.move_unit(self.selected_unit_id, row, col)
+        if not ok:
+            self.battle.log.append(f"Движение невозможно: {reason}")
+        self.field.set_units({u.id: u for u in self.battle.all_units()})
+        self._sync_log()
 
     def _start_battle(self) -> None:
+        if not self.battle.all_units():
+            self.battle.log.append("Добавьте юнитов в лагеря перед битвой")
+            self._sync_log()
+            return
+        self._auto_deploy()
         self.battle.active = True
-        self.battle.turn_index = 0
-        # Формируем инициативную очередь (заглушка — по ОЗ, позже по инициативе)
-        all_units: list[UnitToken] = []
-        for army in self.battle.armies.values():
-            all_units.extend(army.units)
-        all_units.sort(key=lambda u: u.ac, reverse=True)
-        self.battle.initiative_order = [u.id for u in all_units if u.hp > 0]
-        self.battle.current_turn = "hero"
-        self._refresh_army_widgets()
-        self.log_list.clear()
         self.battle.log.append("Битва началась!")
-        self.log_list.addItem("Битва началась!")
+        self.battle.roll_initiative()
+        current = self.battle.current_unit()
+        if current is not None:
+            self.selected_unit_id = current.id
+            self.battle.log.append(f"Первый ход: {current.name}")
+        self.target_unit_id = None
+        self._refresh_army_widgets()
+        self._refresh_turn_label()
+        self._sync_log()
 
     def _next_turn(self) -> None:
         if not self.battle.active:
             return
         self.battle.next_turn()
-        army = self.battle.current_army()
-        self.log_list.addItem(f"Ход: {army.name if army else '—'}")
+        current = self.battle.current_unit()
+        if current is not None:
+            self.selected_unit_id = current.id
+        self.target_unit_id = None
         self._refresh_army_widgets()
+        self._refresh_turn_label()
+        self._sync_log()
 
     def _end_battle(self) -> None:
         self.battle.end_battle()
-        self.log_list.addItem("Битва завершена")
         self._refresh_army_widgets()
+        self._refresh_turn_label()
+        self._sync_log()
 
     def _reset_field(self) -> None:
         for r in range(self.field.rows):
@@ -653,6 +937,104 @@ class StrategicStage(QWidget):
                 self.field.cells[r][c].unit_id = None
         self.field.reset_selection()
         self.field.update()
+
+    def _attack_target(self) -> None:
+        """Выполнить атаку текущего юнита по выбранной цели."""
+        if not self.battle.active:
+            self.battle.log.append("Сначала нажмите «Начать битву»")
+            self._sync_log()
+            return
+        current = self.battle.current_unit()
+        attacker_id = current.id if current is not None else self.selected_unit_id
+        if attacker_id is None:
+            self.battle.log.append("Нет атакующего: очередь ходов пуста")
+            self._sync_log()
+            return
+        if self.target_unit_id is None:
+            self.battle.log.append("Выберите цель: кликните по вражескому юниту на поле или в списке")
+            self._sync_log()
+            return
+        try:
+            self.battle.attack(attacker_id, self.target_unit_id)
+        except ValueError as exc:
+            self.battle.log.append(f"Атака невозможна: {exc}")
+            self._sync_log()
+            return
+        if not self.battle.active:
+            self.target_unit_id = None
+        self.field.set_units({u.id: u for u in self.battle.all_units()})
+        self._refresh_army_widgets()
+        self._refresh_turn_label()
+        self._sync_log()
+
+    def _auto_deploy(self) -> None:
+        """Расставить невыставленных юнитов: герои слева, враги справа."""
+        placed = self.field.occupied_cells()
+        heroes = [u for u in self.battle.armies.get("hero", Army()).units if u.id not in placed and u.hp > 0]
+        enemies = [u for u in self.battle.armies.get("enemy", Army()).units if u.id not in placed and u.hp > 0]
+        rows, cols = self.field.rows, self.field.cols
+        half = max(1, cols // 2)
+        for index, unit in enumerate(heroes):
+            r, c = index % rows, (index // rows) % half
+            if self.field.cells[r][c].unit_id is None:
+                self.field.set_unit_on_cell(unit.id, r, c)
+        for index, unit in enumerate(enemies):
+            r, c = index % rows, cols - 1 - (index // rows) % half
+            if self.field.cells[r][c].unit_id is None:
+                self.field.set_unit_on_cell(unit.id, r, c)
+        self.field.set_units({u.id: u for u in self.battle.all_units()})
+
+    def _sync_log(self) -> None:
+        """Добавить новые записи журнала боя в виджет."""
+        while self._shown_log < len(self.battle.log):
+            self.log_list.addItem(self.battle.log[self._shown_log])
+            self._shown_log += 1
+        self.log_list.scrollToBottom()
+
+    def _current_unit_id(self) -> str | None:
+        current = self.battle.current_unit() if self.battle.active else None
+        return current.id if current is not None else None
+
+    def _refresh_turn_label(self) -> None:
+        if not self.battle.active:
+            winner = self.battle.check_winner()
+            if winner == "hero":
+                self.turn_label.setText("Победа героев! Начните новую битву или переставьте юнитов.")
+            elif winner == "enemy":
+                self.turn_label.setText("Победа врагов! Начните новую битву или переставьте юнитов.")
+            elif winner == "draw":
+                self.turn_label.setText("Ничья: обе армии уничтожены.")
+            else:
+                self.turn_label.setText("Битва не начата: расставьте юнитов и нажмите «Начать битву».")
+            return
+        current = self.battle.current_unit()
+        if current is None:
+            self.turn_label.setText("Очередь пуста.")
+        else:
+            self.turn_label.setText(
+                f"Ходит: {current.name} · ОЗ {current.hp}/{current.max_hp} · "
+                f"{current.damage} (досягаемость {current.range_ft} фт)"
+            )
+
+    def _update_selection_hint(self) -> None:
+        attacker = self.battle.unit_by_id(self.selected_unit_id) if self.selected_unit_id else None
+        target = self.battle.unit_by_id(self.target_unit_id) if self.target_unit_id else None
+        left = attacker.name if attacker else "—"
+        right = target.name if target else "—"
+        extra = ""
+        if attacker is not None and target is not None:
+            apos = self.battle.position_of(attacker.id)
+            tpos = self.battle.position_of(target.id)
+            if apos is not None and tpos is not None:
+                reaches, dist = in_range(apos, tpos, attacker.range_ft, self.battle.grid_type, self.battle.cell_ft)
+                extra = f" · {dist} фт — {'достаёт' if reaches else 'далеко'}"
+        self.selection_label.setText(f"Атакующий: {left} · Цель: {right}{extra}")
+
+    def _on_grid_type_changed(self, index: int) -> None:
+        grid_type = GRID_HEX if index == 1 else GRID_SQUARE
+        self.field.set_grid_type(grid_type)
+        self.battle.grid_type = grid_type
+        self._update_selection_hint()
 
     def _edit_army(self, side: str) -> None:
         """Открыть диалог редактирования состава армии — по юнитам через UnitEditorDialog."""
@@ -713,6 +1095,7 @@ class StrategicStage(QWidget):
                 unit.hp = unit.max_hp
             unit.ac = editor.ac_input.value()
             unit.attack_bonus = editor.attack_input.value()
+            unit.dex_mod = editor.dex_input.value()
             unit.damage = editor.damage_input.text().strip() or "1d6"
             unit.damage_type = editor.damage_type_combo.currentText()
             unit.speed_ft = editor.speed_input.value()
