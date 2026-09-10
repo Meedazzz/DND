@@ -39,6 +39,18 @@ from PySide6.QtWidgets import (
 )
 
 from .models import Combatant
+from .strategic_rules import (
+    GRID_HEX,
+    GRID_SQUARE,
+    CellPos,
+    StrikeResult,
+    battle_outcome,
+    can_move,
+    flanking,
+    in_range,
+    resolve_strike,
+    roll_initiative,
+)
 
 
 def uid(prefix: str) -> str:
