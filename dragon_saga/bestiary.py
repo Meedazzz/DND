@@ -1,6 +1,6 @@
 """Встроенный бестиарий «Драконьей Саги» — готовые существа в один клик.
 
-Десять оригинальных существ трёх рангов (моб / элита / босс) с полными
+Шестнадцать оригинальных существ трёх рангов (моб / элита / босс) с полными
 боевыми листами: характеристики, защиты, действия, ресурсы, исходный
 текст и аудит. Это не выдержки из книг — существа написаны для саги и
 сбалансированы под конструктор встреч (CR совместим с таблицей XP 5e).
@@ -33,6 +33,12 @@ ENTRIES: tuple[BestiaryEntry, ...] = (
     BestiaryEntry("ash_knight", "Рыцарь пепла", "elite", "3", "Закалённый ветеран в чёрной броне, парный удар мечом."),
     BestiaryEntry("choir_archmage", "Архимаг Багрового Хора", "boss", "6", "Голос культа: багровые разряды и легендарное сопротивление."),
     BestiaryEntry("ash_wyrm", "Древний змей Золы", "boss", "8", "Крылатый ужас с пепельным дыханием (перезарядка 5–6)."),
+    BestiaryEntry("kobold", "Кобольд-ловчий", "mob", "1/8", "Мелкий загонщик стаи: праща, силки и стайная тактика."),
+    BestiaryEntry("spider", "Паучий охотник", "mob", "1/2", "Засадный хищник: ядовитый укус и ловчая паутина."),
+    BestiaryEntry("harpy", "Гарпия-певунья", "mob", "1", "Когти и завораживающая песнь над полем боя."),
+    BestiaryEntry("choir_hunter", "Гончий Багрового Хора", "elite", "4", "Каратель культа: двуручный меч и багровые выстрелы."),
+    BestiaryEntry("troll", "Тролль-падальщик", "elite", "5", "Гора злобы с регенерацией — держите огонь наготове."),
+    BestiaryEntry("ash_matriarch", "Матриарх пепельного роя", "boss", "9", "Праматерь роя: укус, облако пепла и легион детей."),
 )
 
 _BY_ID = {entry.id: entry for entry in ENTRIES}
@@ -80,7 +86,7 @@ def _base(
         challenge_rating=meta.cr,
         source_text=source,
         audit=[
-            f"Бестиарий «Драконьей Саги 5.0»: {meta.name} (CR {meta.cr}).",
+            f"Бестиарий «Драконьей Саги 5.1»: {meta.name} (CR {meta.cr}).",
             f"Ранг: { {'mob': 'моб', 'elite': 'элита', 'boss': 'босс'}[meta.rank] } — портретная заглушка выбирается автоматически.",
             "Характеристики и действия сверены с конструктором встреч; исходный текст сохранён дословно.",
         ],
@@ -273,6 +279,127 @@ def _ash_wyrm() -> Combatant:
     return c
 
 
+def _kobold() -> Combatant:
+    c = _base(
+        "kobold", name="Кобольд-ловчий", ac=12, hp=5, speed=30, size="Маленький",
+        ctype="гуманоид", alignment="беззаконно-злой", stats=(7, 15, 9, 8, 7, 8),
+        blurb="", source="Кобольд-ловчий. Маленький гуманоид, беззаконно-злой. КД 12, ОЗ 5, скорость 30 фт. Кинжал +4 (1d4+2), праща +4 (1d4+2, 30/120 фт). Стайная тактика: преимущество, если союзник рядом с целью.",
+    )
+    c.actions = [
+        Action(name="Кинжал", kind="attack", attack_bonus=4, damage="1d4+2", damage_type="колющий", range_ft=5),
+        Action(name="Праща", kind="attack", attack_bonus=4, damage="1d4+2", damage_type="дробящий", range_ft=30),
+    ]
+    c.traits = ["Стайная тактика: преимущество атак, если союзник в 5 футах от цели"]
+    c.senses = "тёмное зрение 60 фт"
+    c.languages = "общий, драконий"
+    return c
+
+
+def _spider() -> Combatant:
+    c = _base(
+        "spider", name="Паучий охотник", ac=13, hp=16, speed=30, size="Средний",
+        ctype="зверь", alignment="без мировоззрения", stats=(10, 16, 12, 2, 11, 4),
+        blurb="", source="Паучий охотник. Средний зверь. КД 13 (природный), ОЗ 16, скорость 30 фт, лазание 30 фт. Укус +4 (1d6+2 плюс яд: спасбросок ТЕЛ Сл 11, 2d6 яда при провале). Паутина: спасбросок СИЛ Сл 11 или опутан.",
+    )
+    c.actions = [
+        Action(name="Укус", kind="attack", attack_bonus=4, damage="1d6+2", damage_type="колющий", range_ft=5,
+               description="Плюс яд: спасбросок ТЕЛ Сл 11, при провале 2d6 урона ядом."),
+        Action(name="Ловчая паутина", kind="save", save_ability="str", save_dc=11, damage="0",
+               range_ft=30, description="При провале цель опутана: скорость 0 до спасброска СИЛ Сл 11 действием."),
+    ]
+    c.skills = {"Скрытность": 5}
+    c.senses = "слепое зрение 10 фт, тёмное зрение 60 фт"
+    return c
+
+
+def _harpy() -> Combatant:
+    c = _base(
+        "harpy", name="Гарпия-певунья", ac=13, hp=33, speed=30, size="Средний",
+        ctype="чудовище", alignment="хаотично-злой", stats=(12, 13, 12, 7, 10, 13),
+        blurb="", source="Гарпия-певунья. Среднее чудовище, хаотично-злая. КД 13, ОЗ 33, скорость 30 фт, полёт 50 фт. Когти +4 (2d4+2), Завораживающая песнь: спасбросок МДР Сл 11 или очарование.",
+    )
+    c.actions = [
+        Action(name="Когти", kind="attack", attack_bonus=4, damage="2d4+2", damage_type="рубящий", range_ft=5),
+        Action(name="Завораживающая песнь", kind="save", save_ability="wis", save_dc=11, damage="0",
+               range_ft=60, description="При провале цель очарована и идёт к гарпии, пока песнь звучит (концентрация)."),
+    ]
+    c.traits = ["Полёт 50 фт: гарпия предпочитает пикировать из тылового ряда"]
+    c.languages = "общий"
+    return c
+
+
+def _choir_hunter() -> Combatant:
+    c = _base(
+        "choir_hunter", name="Гончий Багрового Хора", ac=15, hp=60, speed=30, size="Средний",
+        ctype="гуманоид", alignment="беззаконно-злой", stats=(16, 13, 14, 10, 12, 11),
+        blurb="", source="Гончий Багрового Хора. Средний гуманоид, беззаконно-злой. КД 15 (кольчуга), ОЗ 60, скорость 30 фт. Двуручный меч +6 (2d6+4), Багровый выстрел +6 (2d8+3 огнём, 60 фт). Спасброски МДР +4.",
+    )
+    c.saves = {"wis": 4}
+    c.actions = [
+        Action(name="Двуручный меч", kind="attack", attack_bonus=6, damage="2d6+4", damage_type="рубящий", range_ft=5),
+        Action(name="Багровый выстрел", kind="attack", attack_bonus=6, damage="2d8+3", damage_type="огонь", range_ft=60),
+    ]
+    c.traits = ["Ищейка хора: преимущество проверок выслеживания культовых отступников"]
+    c.skills = {"Восприятие": 4}
+    c.languages = "общий, бездны"
+    return c
+
+
+def _troll() -> Combatant:
+    c = _base(
+        "troll", name="Тролль-падальщик", ac=14, hp=84, speed=30, size="Большой",
+        ctype="великан", alignment="хаотично-злой", stats=(18, 13, 20, 7, 9, 7),
+        blurb="", source="Тролль-падальщик. Большой великан, хаотично-злой. КД 14 (природный), ОЗ 84, скорость 30 фт. Укус +7 (1d6+4), когти +7 (2d6+4). Регенерация 10 в начале хода; не действует, если в прошлом ходу был урон огнём или кислотой.",
+    )
+    c.actions = [
+        Action(name="Укус", kind="attack", attack_bonus=7, damage="1d6+4", damage_type="колющий", range_ft=5),
+        Action(name="Рвущие когти", kind="attack", attack_bonus=7, damage="2d6+4", damage_type="рубящий", range_ft=5,
+               description="Мультиатака: тролль бьёт укусом и когтями за одно действие."),
+    ]
+    c.traits = ["Регенерация 10: в начале хода восстанавливает 10 ОЗ, если не получал урона огнём или кислотой с прошлого хода"]
+    c.skills = {"Восприятие": 2}
+    c.senses = "тёмное зрение 60 фт"
+    c.languages = "великаний"
+    c.hit_die = 10
+    c.hit_dice_current = 8
+    c.hit_dice_max = 8
+    return c
+
+
+def _ash_matriarch() -> Combatant:
+    c = _base(
+        "ash_matriarch", name="Матриарх пепельного роя", ac=17, hp=180, speed=40, size="Огромный",
+        ctype="чудовище", alignment="беззаконно-злой", stats=(21, 14, 20, 13, 14, 16),
+        blurb="", source="Матриарх пепельного роя. Огромное чудовище, беззаконно-злая. КД 17 (хитин), ОЗ 180, скорость 40 фт. Укус +9 (2d8+5 плюс 3d6 яда), Облако пепла (перезарядка 5-6): спасбросок ТЕЛ Сл 16, 6d6 яда. Легендарное сопротивление 3/день.",
+    )
+    c.saves = {"con": 9, "wis": 6}
+    resistance = Resource(name="Легендарное сопротивление", current=3, maximum=3)
+    legendary = Resource(name="Легендарные действия", current=3, maximum=3)
+    c.resources = [resistance, legendary]
+    c.actions = [
+        Action(name="Укус роя", kind="attack", attack_bonus=9, damage="2d8+5", damage_type="колющий", range_ft=10,
+               description="Плюс 3d6 урона ядом при попадании."),
+        Action(name="Облако пепла", kind="save", save_ability="con", save_dc=16, damage="6d6",
+               damage_type="яд", half_on_save=True, range_ft=30, recharge="5-6"),
+        Action(name="Зов детей", kind="utility", description="Матриарх призывает 1d4 паучьих охотников из резервных нор (мастер выставляет их вручную).", damage="0"),
+    ]
+    c.legendary_actions = [
+        "Выпад жвал (1): укус роя по цели в 10 футах",
+        "Пепельный покров (2): тяжело заслонённая местность в авангарде до конца следующего хода",
+        "Рой-тело (3): матриарх восстанавливает 2d8 ОЗ, поглощая своих детей",
+    ]
+    c.traits = ["Рой-тело: матриарх видит сквозь дым и пепел, иммунитет ослеплению"]
+    c.immunities = ["яд"]
+    c.condition_immunities = ["Ослеплённый", "Отравленный"]
+    c.skills = {"Восприятие": 10}
+    c.senses = "слепое зрение 60 фт"
+    c.hit_die = 12
+    c.hit_dice_current = 14
+    c.hit_dice_max = 14
+    c.is_boss = True
+    return c
+
+
 _BUILDERS = {
     "bandit": _bandit,
     "goblin": _goblin,
@@ -284,7 +411,14 @@ _BUILDERS = {
     "ash_knight": _ash_knight,
     "choir_archmage": _choir_archmage,
     "ash_wyrm": _ash_wyrm,
+    "kobold": _kobold,
+    "spider": _spider,
+    "harpy": _harpy,
+    "choir_hunter": _choir_hunter,
+    "troll": _troll,
+    "ash_matriarch": _ash_matriarch,
 }
+
 
 
 def create(entry_id: str, *, number: int = 0) -> Combatant:

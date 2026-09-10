@@ -965,7 +965,7 @@ class MainWindow(QMainWindow):
         subtitle = QLabel("DRAGON SAGA"); subtitle.setObjectName("brandAccent"); side.addWidget(subtitle)
         banner = assets.banner_path()
         if banner is not None:
-            banner_label = QLabel(); banner_label.setToolTip("Сага 5.0 «Гримуар» — оригинальная гербовая заглушка")
+            banner_label = QLabel(); banner_label.setToolTip("Сага 5.1 «Полководец» — оригинальная гербовая заглушка")
             banner_pixmap = load_pixmap(str(banner), 190, 190)
             if banner_pixmap and not banner_pixmap.isNull():
                 banner_label.setPixmap(banner_pixmap); banner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1517,7 +1517,7 @@ class MainWindow(QMainWindow):
             "Спасброски: DC, характеристика, модификатор, урон/лечение, половина урона\n"
             "Сравнение КД: КД защищающегося/нападающего, преимущества, бонусы/пенальти\n"
             "Инициатива: список участников, бонусы, броски, очередь ходов\n"
-            "Встреча и XP: уровни партии, CR противников, множитель численности, пороги сложности"
+            "Встреча и XP: уровни партии, CR противников, пороги сложности + генератор встреч из бестиария с выводом на сцену"
         )
         tip_data.setWordWrap(True); tip_data.setObjectName("muted"); tips_layout.addWidget(tip_data)
         root.addWidget(tips, 1)
