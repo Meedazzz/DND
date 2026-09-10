@@ -58,3 +58,52 @@ def test_assess_validates_input():
         encounter.assess([], ["1"])
     with pytest.raises(ValueError):
         encounter.assess([3], [])
+
+
+def test_generate_deterministic_with_seed():
+    first = encounter.generate([3, 3, 3, 4], "средняя", seed=42)
+    second = encounter.generate([3, 3, 3, 4], "средняя", seed=42)
+    assert first.picks == second.picks
+    assert first.report.adjusted_xp == second.report.adjusted_xp
+    assert first.seed == 42
+
+
+def test_generate_hits_requested_band():
+    party = [5, 5, 5, 5]
+    for difficulty in ("лёгкая", "средняя", "тяжёлая"):
+        result = encounter.generate(party, difficulty, seed=7)
+        assert result.requested == difficulty
+        assert result.report.difficulty == difficulty, (difficulty, result.picks)
+        assert 1 <= len(result.monster_crs) <= 8
+        assert result.report.monsters == len(result.monster_crs)
+
+
+def test_generate_deadly_prefers_boss_or_elite():
+    from dragon_saga import bestiary
+    result = encounter.generate([8, 8, 8, 8], "смертельная", seed=11)
+    ranks = {bestiary.entry(entry_id).rank for entry_id, _ in result.picks}
+    assert ranks & {"boss", "elite"}
+    assert result.report.difficulty in {"тяжёлая", "смертельная"}
+
+
+def test_generate_respects_theme_and_cap():
+    result = encounter.generate([3, 3, 3], "средняя", theme="undead", max_monsters=4, seed=3)
+    assert result.theme == "undead"
+    assert len(result.monster_crs) <= 4
+    assert {entry_id for entry_id, _ in result.picks} <= {"skeleton", "zombie"}
+    text = result.summary.lower()
+    assert "страж" in text or "мертвяк" in text
+
+
+def test_generate_validates_input():
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        encounter.generate([], "средняя")
+    with _pytest.raises(ValueError):
+        encounter.generate([3], "невозможная")
+
+
+def test_theme_pool_falls_back_to_full_catalog():
+    from dragon_saga import bestiary
+    assert len(encounter.theme_pool("no-such-theme")) == len(bestiary.entries())
+    assert set(encounter.theme_pool("cult")) == {"cultist", "choir_hunter", "choir_archmage"}

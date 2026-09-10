@@ -3,11 +3,17 @@
 Считает сырой и скорректированный опыт группы противников, пороги
 сложности партии и итоговую оценку «легко / средне / тяжело / смертельно».
 Чистые функции без Qt — используются и страницей калькуляторов, и тестами.
+
+С версии 5.1.0 здесь же живёт генератор встреч: подбор состава из
+бестиария под заказанную сложность (офлайн-эвристика, без внешних ИИ).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import random
+from dataclasses import dataclass, field
+
+from . import bestiary
 
 
 # CR → XP. Ключи строками, чтобы совпадать с parser/bestiary («1/4», «5»…).
@@ -130,4 +136,221 @@ def assess(party_levels: list[int], monster_crs: list[str]) -> EncounterReport:
         thresholds=thresholds,
         difficulty=difficulty,
         per_character_xp=raw // max(1, len(party_levels)),
+    )
+
+
+# ------------------------------------------------------------------
+# Генератор встреч 5.1.0: подбор состава из бестиария под сложность
+# ------------------------------------------------------------------
+
+#: Тематические пулы бестиария: id темы → (подпись, id существ).
+THEMES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "any": ("Любая", ()),
+    "undead": ("Нежить", ("skeleton", "zombie")),
+    "wilds": ("Дикая природа", ("wolf", "spider", "harpy", "troll")),
+    "brigands": ("Лихие люди", ("bandit", "goblin", "kobold", "ogre", "ash_knight")),
+    "cult": ("Багровый Хор", ("cultist", "choir_hunter", "choir_archmage")),
+    "ash": ("Пепел", ("ash_knight", "cultist", "ash_wyrm", "ash_matriarch")),
+}
+
+_DIFFICULTY_ALIASES = {
+    "пустяковая": "пустяковая",
+    "легкая": "лёгкая", "лёгкая": "лёгкая",
+    "средняя": "средняя",
+    "тяжелая": "тяжёлая", "тяжёлая": "тяжёлая",
+    "смертельная": "смертельная",
+}
+
+
+def theme_pool(theme: str) -> list[str]:
+    """Id существ темы; неизвестная/пустая тема — весь бестиарий."""
+    _label, ids = THEMES.get(theme, THEMES["any"])
+    known = {entry.id for entry in bestiary.entries()}
+    pool = [entry_id for entry_id in ids if entry_id in known]
+    return pool or [entry.id for entry in bestiary.entries()]
+
+
+def _band_bounds(difficulty: str, thresholds: dict[str, int]) -> tuple[int, int, int]:
+    """Границы заказанной сложности: (низ, верх, прицел).
+
+    Верхняя граница исключительная — как в :func:`assess` (полоса
+    «лёгкая» заканчивается там, где начинается «средняя»).
+    """
+    easy, medium, hard, deadly = (thresholds[key] for key in ("лёгкий", "средний", "тяжёлый", "смертельный"))
+    if difficulty == "пустяковая":
+        return 0, max(1, easy), max(1, easy // 2)
+    if difficulty == "лёгкая":
+        return easy, medium, easy + (medium - easy) * 3 // 4
+    if difficulty == "средняя":
+        return medium, hard, medium + (hard - medium) * 3 // 4
+    if difficulty == "тяжёлая":
+        return hard, deadly, hard + (deadly - hard) * 3 // 4
+    return deadly, deadly * 2, deadly + deadly // 5
+
+
+@dataclass
+class GeneratedEncounter:
+    """Подобранная встреча: состав, CR и готовый отчёт конструктора."""
+
+    picks: list[tuple[str, int]] = field(default_factory=list)  # (entry_id, count)
+    monster_crs: list[str] = field(default_factory=list)
+    monster_names: list[str] = field(default_factory=list)
+    report: EncounterReport | None = None
+    requested: str = "средняя"
+    theme: str = "any"
+    seed: int = 0
+    note: str = ""
+
+    @property
+    def summary(self) -> str:
+        parts = ", ".join(f"{name} ×{count}" if count > 1 else name for name, count in self._named_picks())
+        return f"{parts} — {self.report.difficulty if self.report else '—'}"
+
+    def _named_picks(self) -> list[tuple[str, int]]:
+        names = []
+        for entry_id, count in self.picks:
+            try:
+                names.append((bestiary.entry(entry_id).name, count))
+            except KeyError:
+                names.append((entry_id, count))
+        return names
+
+
+def _adjusted_xp(crs: list[str]) -> int:
+    return int(sum(xp_for_cr(cr) for cr in crs) * multiplier(len(crs)))
+
+
+def _strategies_for(difficulty: str) -> tuple[str, ...]:
+    if difficulty == "пустяковая":
+        return ("single",)
+    if difficulty == "лёгкая":
+        return ("pack", "mixed", "pack", "mixed")
+    if difficulty == "средняя":
+        return ("mixed", "pack", "elite", "mixed", "elite")
+    if difficulty == "тяжёлая":
+        return ("elite", "mixed", "boss", "elite", "boss")
+    return ("boss", "elite", "boss", "mixed", "elite")
+
+
+def _attempt_picks(rng: random.Random, pool: list[str], strategy: str,
+                   max_monsters: int, hi: int, target: int) -> list[str]:
+    """Одна попытка собрать состав; возвращает список id существ."""
+    by_rank: dict[str, list[str]] = {"mob": [], "elite": [], "boss": []}
+    for entry_id in pool:
+        by_rank[bestiary.entry(entry_id).rank].append(entry_id)
+    mobs = by_rank["mob"] or pool
+    elites = by_rank["elite"] or mobs
+    bosses = by_rank["boss"] or elites
+
+    def crs_of(picks: list[str]) -> list[str]:
+        return [bestiary.entry(p).cr for p in picks]
+
+    if strategy == "single":
+        weakest = min(pool, key=lambda e: xp_for_cr(bestiary.entry(e).cr))
+        return [weakest]
+
+    picks: list[str] = []
+    if strategy == "boss":
+        picks.append(rng.choice(bosses))
+        adds = rng.randint(0, 3)
+        followers = mobs
+    elif strategy == "elite":
+        picks.append(rng.choice(elites))
+        adds = rng.randint(1, 4)
+        followers = mobs
+    elif strategy == "pack":
+        picks.append(rng.choice(mobs))
+        adds = rng.randint(2, 5)
+        followers = mobs
+    else:  # mixed
+        picks.append(rng.choice(pool))
+        adds = rng.randint(1, 5)
+        followers = pool
+
+    for _ in range(adds):
+        if len(picks) >= max_monsters:
+            break
+        candidate = rng.choice(followers)
+        trial = picks + [candidate]
+        if _adjusted_xp(crs_of(trial)) >= hi and picks:
+            cheaper = [c for c in followers
+                       if xp_for_cr(bestiary.entry(c).cr) < xp_for_cr(bestiary.entry(candidate).cr)]
+            if cheaper:
+                gentle = rng.choice(cheaper)
+                trial = picks + [gentle]
+                if _adjusted_xp(crs_of(trial)) >= hi:
+                    break
+            else:
+                break
+        picks = trial
+        if _adjusted_xp(crs_of(picks)) >= target and rng.random() < 0.65:
+            break
+    if not picks:
+        picks = [min(pool, key=lambda e: xp_for_cr(bestiary.entry(e).cr))]
+    return picks[:max_monsters]
+
+
+def generate(party_levels: list[int], difficulty: str = "средняя", *,
+             theme: str = "any", max_monsters: int = 8, seed: int | None = None,
+             attempts: int = 120) -> GeneratedEncounter:
+    """Подобрать встречу из бестиария под партию и заказанную сложность.
+
+    ``seed`` делает подбор воспроизводимым: один и тот же сид всегда
+    даёт один и тот же состав. Без сида используется случайный.
+    """
+    if not party_levels:
+        raise ValueError("Укажите хотя бы одного героя")
+    canonical = _DIFFICULTY_ALIASES.get(difficulty.strip().lower(), "")
+    if not canonical:
+        raise ValueError(f"Неизвестная сложность: {difficulty!r}")
+    pool = theme_pool(theme)
+    if not pool:
+        raise ValueError("Пустой пул существ для генерации")
+    max_monsters = min(12, max(1, int(max_monsters)))
+    if seed is None:
+        seed = random.randint(0, 999_999)
+    rng = random.Random(seed)
+    thresholds = party_thresholds(party_levels)
+    lo, hi, target = _band_bounds(canonical, thresholds)
+
+    best: list[str] = []
+    best_score: tuple[float, float] | None = None
+    strategies = _strategies_for(canonical)
+    for i in range(max(1, attempts)):
+        strategy = strategies[i % len(strategies)]
+        picks = _attempt_picks(rng, pool, strategy, max_monsters, hi, target)
+        crs = [bestiary.entry(p).cr for p in picks]
+        adjusted = _adjusted_xp(crs)
+        if lo <= adjusted < hi:
+            score = (0.0, float(target - adjusted))  # в полосе: ближе к прицелу
+        elif adjusted < lo:
+            score = (float(lo - adjusted), 0.0)  # недобрали
+        else:
+            score = (float((adjusted - hi) * 3 + 10_000), 0.0)  # перелёт хуже
+        if best_score is None or score < best_score:
+            best_score = score
+            best = picks
+
+    crs = [bestiary.entry(p).cr for p in best]
+    report = assess(party_levels, crs)
+    grouped: list[tuple[str, int]] = []
+    for entry_id in best:
+        for index, (known_id, count) in enumerate(grouped):
+            if known_id == entry_id:
+                grouped[index] = (known_id, count + 1)
+                break
+        else:
+            grouped.append((entry_id, 1))
+    hit = report.difficulty == canonical
+    note = ("Состав точно в заказанной сложности." if hit
+            else f"Ближайшее к заказу ({canonical}): вышло «{report.difficulty}» — пул темы слабоват, добавьте существ или поднимите лимит.")
+    return GeneratedEncounter(
+        picks=grouped,
+        monster_crs=crs,
+        monster_names=[bestiary.entry(p).name for p in best],
+        report=report,
+        requested=canonical,
+        theme=theme if theme in THEMES else "any",
+        seed=seed,
+        note=note,
     )

@@ -7,7 +7,7 @@ from dragon_saga import bestiary
 
 def test_catalog_is_complete_and_unique():
     entries = bestiary.entries()
-    assert len(entries) == 10
+    assert len(entries) == 16
     ids = [entry.id for entry in entries]
     assert len(set(ids)) == len(ids)
     ranks = {entry.rank for entry in entries}

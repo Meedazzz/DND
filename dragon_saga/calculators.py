@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .encounter import assess, normalize_cr
+from . import bestiary
+from .encounter import THEMES, assess, generate, normalize_cr
 from .models import ABILITIES, ZONES
 from .rules import BattleEngine, RuleError
 
@@ -727,6 +728,7 @@ class EncounterCalculator(QWidget):
     def __init__(self, window=None, parent: QWidget | None = None):
         super().__init__(parent)
         self.window = window
+        self._last_generated = None
         self.init_ui()
 
     def init_ui(self) -> None:
@@ -764,6 +766,63 @@ class EncounterCalculator(QWidget):
         buttons.addStretch()
         layout.addLayout(buttons)
 
+        generator = QFrame()
+        generator.setObjectName("panel")
+        gen_layout = QVBoxLayout(generator)
+        gen_title = QLabel("ГЕНЕРАТОР ВСТРЕЧ · подбор состава из бестиария")
+        gen_title.setObjectName("section")
+        gen_layout.addWidget(gen_title)
+
+        gen_row = QHBoxLayout()
+        gen_row.addWidget(QLabel("Сложность:"))
+        self.difficulty_combo = QComboBox()
+        self.difficulty_combo.addItems(["лёгкая", "средняя", "тяжёлая", "смертельная"])
+        self.difficulty_combo.setCurrentText("средняя")
+        gen_row.addWidget(self.difficulty_combo)
+        gen_row.addWidget(QLabel("Тема:"))
+        self.theme_combo = QComboBox()
+        for theme_id, (label, _ids) in THEMES.items():
+            self.theme_combo.addItem(label, theme_id)
+        gen_row.addWidget(self.theme_combo)
+        gen_row.addWidget(QLabel("Макс. врагов:"))
+        self.max_spin = QSpinBox()
+        self.max_spin.setRange(1, 12)
+        self.max_spin.setValue(8)
+        gen_row.addWidget(self.max_spin)
+        gen_layout.addLayout(gen_row)
+
+        seed_row = QHBoxLayout()
+        seed_row.addWidget(QLabel("Сид:"))
+        self.seed_spin = QSpinBox()
+        self.seed_spin.setRange(0, 999999)
+        self.seed_spin.setValue(42)
+        self.seed_spin.setToolTip("Один и тот же сид всегда даёт один и тот же состав")
+        seed_row.addWidget(self.seed_spin)
+        dice_seed = QPushButton("🎲 Случайный сид")
+        dice_seed.clicked.connect(self.randomize_seed)
+        seed_row.addWidget(dice_seed)
+        seed_row.addStretch()
+        gen_layout.addLayout(seed_row)
+
+        gen_buttons = QHBoxLayout()
+        roll_encounter = QPushButton("СГЕНЕРИРОВАТЬ")
+        roll_encounter.setObjectName("primary")
+        roll_encounter.clicked.connect(self.generate_encounter)
+        gen_buttons.addWidget(roll_encounter)
+        self.deploy_button = QPushButton("⚔ Вывести на сцену")
+        self.deploy_button.setToolTip("Создать подобранных существ и расставить их в ряды А2/Т2")
+        self.deploy_button.setEnabled(False)
+        self.deploy_button.clicked.connect(self.deploy_generated)
+        gen_buttons.addWidget(self.deploy_button)
+        gen_buttons.addStretch()
+        gen_layout.addLayout(gen_buttons)
+
+        self.generator_label = QLabel("Задайте уровни партии слева вверху и нажмите «Сгенерировать».")
+        self.generator_label.setWordWrap(True)
+        self.generator_label.setObjectName("muted")
+        gen_layout.addWidget(self.generator_label)
+        layout.addWidget(generator)
+
         self.result_label = QLabel("Введите уровни героев и CR противников.")
         self.result_label.setWordWrap(True)
         self.result_label.setStyleSheet("font-family: Georgia; font-size: 15px; color: #f0e4d8; padding: 10px; background: #1a1414; border: 1px solid #3a3030;")
@@ -781,6 +840,54 @@ class EncounterCalculator(QWidget):
         hint.setWordWrap(True)
         hint.setObjectName("muted")
         layout.addWidget(hint)
+
+    def randomize_seed(self) -> None:
+        import random as _random
+        self.seed_spin.setValue(_random.randint(0, 999999))
+
+    def generate_encounter(self) -> None:
+        try:
+            levels = [int(x.strip()) for x in self.party_input.text().split(",") if x.strip()]
+            result = generate(
+                levels,
+                self.difficulty_combo.currentText(),
+                theme=self.theme_combo.currentData(),
+                max_monsters=self.max_spin.value(),
+                seed=self.seed_spin.value(),
+            )
+        except (ValueError, KeyError) as exc:
+            self.generator_label.setText(f"Проверьте ввод: {exc}")
+            return
+        self._last_generated = result
+        self.enemy_input.setText(", ".join(result.monster_crs))
+        self.calculate()
+        composition = "; ".join(
+            f"{bestiary.entry(entry_id).name} ×{count}" if count > 1 else bestiary.entry(entry_id).name
+            for entry_id, count in result.picks
+        )
+        self.generator_label.setText(
+            f"🎲 Сид {result.seed} · {composition}\n{result.report.summary}\n{result.note}"
+        )
+        self.deploy_button.setEnabled(self.window is not None)
+
+    def deploy_generated(self) -> None:
+        if self.window is None or self._last_generated is None:
+            return
+        if not self.window.is_gm():
+            self.window.error("Выводить существ на сцену может только мастер")
+            return
+        try:
+            added: list[str] = []
+            for entry_id, count in self._last_generated.picks:
+                for index in range(1, count + 1):
+                    actor = bestiary.create(entry_id, number=index)
+                    self.window.campaign.characters.append(actor)
+                    zone = next((z for z in ("A2", "T2") if len(self.window.campaign.positioned(z)) < 2), "reserve")
+                    self.window.campaign.battle.positions[actor.id] = zone
+                    added.append(f"{actor.name} → {zone if zone != 'reserve' else 'резерв'}")
+            self.window.commit(f"Сгенерированная встреча: {', '.join(added)}")
+        except (KeyError, ValueError) as exc:
+            self.window.error(str(exc))
 
     def fill_from_scene(self) -> None:
         if self.window is None:
